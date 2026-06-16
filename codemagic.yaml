@@ -19,7 +19,43 @@ workflows:
       - name: Sync Capacitor Android
         script: npx cap sync android
       - name: Patch AndroidManifest for GPS and notifications
-        script: bash scripts/patch-android-manifest.sh
+        script: |
+          python3 <<'PY'
+          path = "android/app/src/main/AndroidManifest.xml"
+          perms = [
+              "INTERNET",
+              "ACCESS_FINE_LOCATION",
+              "ACCESS_COARSE_LOCATION",
+              "ACCESS_NETWORK_STATE",
+              "POST_NOTIFICATIONS",
+              "VIBRATE",
+          ]
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          for perm in perms:
+              token = f"android.permission.{perm}"
+              if token in content:
+                  print(f"Already has: {perm}")
+                  continue
+              line = f'    <uses-permission android:name="{token}" />\n'
+              if "<application" not in content:
+                  raise SystemExit("No <application tag found")
+              content = content.replace("<application", line + "<application", 1)
+              print(f"Added permission: {perm}")
+          if "android.hardware.location.gps" not in content and "<application" in content:
+              feature = '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+              content = content.replace("<application", feature + "<application", 1)
+              print("Added GPS hardware feature")
+          if "android:usesCleartextTraffic" not in content:
+              content = content.replace("<application ", '<application android:usesCleartextTraffic="true" ', 1)
+              print("Enabled usesCleartextTraffic")
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          for required in ("ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"):
+              if f"android.permission.{required}" not in content:
+                  raise SystemExit(f"FAILED: missing {required}")
+          print("AndroidManifest.xml patched and verified successfully")
+          PY
       - name: Verify location permissions in manifest
         script: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
@@ -62,7 +98,43 @@ workflows:
       - name: Sync Capacitor Android
         script: npx cap sync android
       - name: Patch AndroidManifest for GPS and notifications
-        script: bash scripts/patch-android-manifest.sh
+        script: |
+          python3 <<'PY'
+          path = "android/app/src/main/AndroidManifest.xml"
+          perms = [
+              "INTERNET",
+              "ACCESS_FINE_LOCATION",
+              "ACCESS_COARSE_LOCATION",
+              "ACCESS_NETWORK_STATE",
+              "POST_NOTIFICATIONS",
+              "VIBRATE",
+          ]
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          for perm in perms:
+              token = f"android.permission.{perm}"
+              if token in content:
+                  print(f"Already has: {perm}")
+                  continue
+              line = f'    <uses-permission android:name="{token}" />\n'
+              if "<application" not in content:
+                  raise SystemExit("No <application tag found")
+              content = content.replace("<application", line + "<application", 1)
+              print(f"Added permission: {perm}")
+          if "android.hardware.location.gps" not in content and "<application" in content:
+              feature = '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+              content = content.replace("<application", feature + "<application", 1)
+              print("Added GPS hardware feature")
+          if "android:usesCleartextTraffic" not in content:
+              content = content.replace("<application ", '<application android:usesCleartextTraffic="true" ', 1)
+              print("Enabled usesCleartextTraffic")
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          for required in ("ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"):
+              if f"android.permission.{required}" not in content:
+                  raise SystemExit(f"FAILED: missing {required}")
+          print("AndroidManifest.xml patched and verified successfully")
+          PY
       - name: Verify location permissions in manifest
         script: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
