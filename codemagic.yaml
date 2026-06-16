@@ -25,6 +25,10 @@ workflows:
               echo "Added permission ${perm}"
             fi
           done
+          if ! grep -q 'android.hardware.location.gps' "$MANIFEST"; then
+            sed -i "/<application/i\\    <uses-feature android:name=\"android.hardware.location.gps\" android:required=\"false\" />" "$MANIFEST"
+            echo "Added GPS hardware feature"
+          fi
           if ! grep -q 'android:usesCleartextTraffic' "$MANIFEST"; then
             sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
             echo "Enabled usesCleartextTraffic"
@@ -74,6 +78,10 @@ workflows:
               echo "Added permission ${perm}"
             fi
           done
+          if ! grep -q 'android.hardware.location.gps' "$MANIFEST"; then
+            sed -i "/<application/i\\    <uses-feature android:name=\"android.hardware.location.gps\" android:required=\"false\" />" "$MANIFEST"
+            echo "Added GPS hardware feature"
+          fi
           if ! grep -q 'android:usesCleartextTraffic' "$MANIFEST"; then
             sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
             echo "Enabled usesCleartextTraffic"
