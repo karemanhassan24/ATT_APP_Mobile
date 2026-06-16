@@ -19,7 +19,19 @@ workflows:
             npx cap add android
           fi
       - name: Patch AndroidManifest for GPS and network
-        script: bash scripts/patch-android-manifest.sh
+        script: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE; do
+            if ! grep -q "android.permission.${perm}" "$MANIFEST"; then
+              sed -i "/<application/i\\    <uses-permission android:name=\"android.permission.${perm}\" />" "$MANIFEST"
+              echo "Added permission ${perm}"
+            fi
+          done
+          if ! grep -q 'android:usesCleartextTraffic' "$MANIFEST"; then
+            sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
+            echo "Enabled usesCleartextTraffic"
+          fi
+          echo "AndroidManifest.xml patched successfully"
       - name: Sync Capacitor Android
         script: npx cap sync android
       - name: Build release APK
