@@ -622,33 +622,51 @@ document.addEventListener('click',e=>{
 });
 
 /* ── GPS ── */
-async function capacitorGPS(){
-  const perm=await window.Capacitor.nativePromise('Geolocation','checkPermissions',{});
-  if(perm.location!=='granted'&&perm.coarseLocation!=='granted'){
-    const req=await window.Capacitor.nativePromise('Geolocation','requestPermissions',{});
-    if(req.location!=='granted'&&req.coarseLocation!=='granted'){
-      throw new Error('تم رفض إذن الموقع — افتح إعدادات التطبيق وفعّل الموقع');
+async function capCall(plugin,method,options={}){
+  const cap=window.Capacitor;
+  if(!cap)throw new Error('Capacitor غير متاح');
+  if(typeof cap.nativePromise==='function')return cap.nativePromise(plugin,method,options);
+  const p=cap.Plugins?.[plugin];
+  if(p&&typeof p[method]==='function')return p[method](options);
+  throw new Error('تعذّر الاتصال بنظام الموقع في التطبيق');
+}
+async function requestLocationPermission(){
+  if(!isCapacitorNative())return true;
+  const perm=await capCall('Geolocation','checkPermissions',{});
+  if(perm.location==='granted'||perm.coarseLocation==='granted')return true;
+  const req=await capCall('Geolocation','requestPermissions',{permissions:['location','coarseLocation']});
+  return req.location==='granted'||req.coarseLocation==='granted';
+}
+window.enableLocationPermission=async function(){
+  const lbl=document.getElementById('gpsLabel');
+  const btn=document.getElementById('gpsEnableBtn');
+  if(lbl)lbl.textContent='⏳ جارٍ طلب إذن الموقع...';
+  if(btn)btn.disabled=true;
+  try{
+    const allowed=await requestLocationPermission();
+    if(!allowed){
+      toast('لم يتم السماح بالموقع — افتح: الإعدادات → التطبيقات → نظام الحضور → الأذونات → الموقع → السماح','warn',9000);
+      if(lbl)lbl.textContent='❌ يرجى تفعيل الموقع من إعدادات التطبيق';
+      return;
     }
+    await getGPSPromise();
+    toast('✅ تم تفعيل الموقع بنجاح','success');
+    const banner=document.getElementById('gpsPermissionBanner');
+    if(banner)banner.classList.add('hidden');
+  }catch(e){
+    toast(e.message||'خطأ GPS','danger',6000);
+    if(lbl)lbl.textContent='❌ تعذّر تحديد الموقع — اضغط تفعيل الموقع';
+  }finally{
+    if(btn){btn.disabled=false;btn.style.display=gpsActive?'none':'';}
   }
-  return window.Capacitor.nativePromise('Geolocation','getCurrentPosition',{
+};
+async function capacitorGPS(){
+  await requestLocationPermission();
+  return capCall('Geolocation','getCurrentPosition',{
     enableHighAccuracy:true,timeout:20000,maximumAge:0
   });
 }
-async function getGPSPromise(){
-  const msgs={1:'تم رفض إذن الموقع — افتح إعدادات التطبيق وفعّل الموقع',2:'تعذّر تحديد الموقع — تأكد أن GPS مفعّل',3:'انتهت مهلة تحديد الموقع'};
-  const applyPos=pos=>{
-    gpsCoords={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
-    gpsActive=true;updateGPSUI();return gpsCoords;
-  };
-  if(isCapacitorNative()){
-    try{
-      const pos=await capacitorGPS();
-      return applyPos(pos);
-    }catch(e){
-      gpsActive=false;
-      throw new Error(e?.message||'خطأ GPS');
-    }
-  }
+async function webViewGPS(applyPos,msgs){
   return new Promise((res,rej)=>{
     if(!navigator.geolocation){rej(new Error('المتصفح لا يدعم GPS'));return}
     navigator.geolocation.getCurrentPosition(
@@ -658,22 +676,39 @@ async function getGPSPromise(){
     );
   });
 }
-window.getGPS=async()=>{
-  const lbl=document.getElementById('gpsLabel');
-  if(lbl)lbl.textContent='⏳ جارٍ تحديد موقعك...';
-  try{await getGPSPromise()}catch(e){toast(e.message,'danger')}
+async function getGPSPromise(){
+  const msgs={1:'تم رفض إذن الموقع — افتح إعدادات التطبيق وفعّل الموقع',2:'تعذّر تحديد الموقع — تأكد أن GPS مفعّل على الهاتف',3:'انتهت مهلة تحديد الموقع'};
+  const applyPos=pos=>{
+    gpsCoords={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
+    gpsActive=true;updateGPSUI();return gpsCoords;
+  };
+  if(isCapacitorNative()){
+    try{
+      const pos=await capacitorGPS();
+      return applyPos(pos);
+    }catch(e1){
+      try{
+        return await webViewGPS(applyPos,msgs);
+      }catch(e2){
+        gpsActive=false;
+        throw new Error(e2?.message||e1?.message||'خطأ GPS');
+      }
+    }
+  }
+  return webViewGPS(applyPos,msgs);
 }
+window.getGPS=async()=>{await window.enableLocationPermission()}
 
-// Auto-GPS on manager page load
+// Auto-GPS only after permission is granted
 async function autoStartGPS(){
+  if(!gpsActive)return;
   try{await getGPSPromise()}catch(e){/* silent on auto */}
 }
 
 let _gpsAutoTimer=null;
 function startAutoGPS(){
-  autoStartGPS();
   if(_gpsAutoTimer)clearInterval(_gpsAutoTimer);
-  _gpsAutoTimer=setInterval(()=>{if(document.getElementById('gpsDot'))autoStartGPS()},60000);
+  _gpsAutoTimer=setInterval(()=>{if(document.getElementById('gpsDot')&&gpsActive)autoStartGPS()},60000);
 }
 
 async function getAddress(lat,lng){
@@ -706,7 +741,11 @@ function updateGPSUI(){
   const coords=document.getElementById('coordsBox');
   const map=document.getElementById('mapEmbed');
   if(dot)dot.className='gps-dot '+(gpsActive?'active':'inactive');
-  if(lbl)lbl.textContent=gpsActive?`✅ تم تحديد موقعك (دقة: ${gpsCoords?.acc?.toFixed(0)}م)`:'لم يتم تحديد موقعك';
+  if(lbl)lbl.textContent=gpsActive?`✅ تم تحديد موقعك (دقة: ${gpsCoords?.acc?.toFixed(0)}م)`:'لم يتم تحديد موقعك — اضغط تفعيل الموقع';
+  const enableBtn=document.getElementById('gpsEnableBtn');
+  const permBanner=document.getElementById('gpsPermissionBanner');
+  if(enableBtn)enableBtn.style.display=gpsActive?'none':'';
+  if(permBanner)permBanner.classList.toggle('hidden',!!gpsActive);
   if(coords&&gpsCoords)coords.innerHTML=`<span>خط العرض: <b>${gpsCoords.lat.toFixed(6)}</b></span><span>خط الطول: <b>${gpsCoords.lng.toFixed(6)}</b></span>`;
   if(map&&gpsCoords)map.innerHTML=`<iframe referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${gpsCoords.lat},${gpsCoords.lng}&z=17&output=embed" title="موقعك" loading="lazy"></iframe>`;
   // fetch address
@@ -1105,14 +1144,18 @@ function renderAttTab(rec){
       </div>
     </div>
     <div class="gps-block">
+      <div id="gpsPermissionBanner" class="${gpsActive?'hidden':''}" style="background:var(--warn-bg);border:1px solid #fed7aa;border-radius:var(--r);padding:12px;margin-bottom:12px;font-size:13px;color:var(--warn)">
+        📍 يحتاج التطبيق إذن الموقع لتسجيل الحضور. اضغط الزر بالأسفل واختر <b>السماح</b> عند ظهور رسالة النظام.
+      </div>
       <div class="gps-header">
-        <div class="gps-status"><div class="gps-dot ${gpsActive?'active':'inactive'}" id="gpsDot"></div><span style="font-size:13px" id="gpsLabel">${gpsActive?`✅ تم تحديد موقعك تلقائياً (دقة: ${gpsCoords?.acc?.toFixed(0)}م)`:'⏳ جارٍ تحديد موقعك تلقائياً...'}</span></div>
+        <div class="gps-status"><div class="gps-dot ${gpsActive?'active':'inactive'}" id="gpsDot"></div><span style="font-size:13px" id="gpsLabel">${gpsActive?`✅ تم تحديد موقعك (دقة: ${gpsCoords?.acc?.toFixed(0)}م)`:'لم يتم تحديد موقعك — اضغط تفعيل الموقع'}</span></div>
         <span style="font-size:11px;color:var(--text3);background:var(--bg3);padding:4px 10px;border-radius:20px;border:1px solid var(--border)">🔒 يتحدث كل دقيقة</span>
       </div>
+      <button type="button" class="btn-primary" id="gpsEnableBtn" onclick="enableLocationPermission()" style="margin:10px 0;width:100%;${gpsActive?'display:none':''}">📍 تفعيل الموقع</button>
       <div class="coords-box" id="coordsBox">${gpsCoords?`<span>خط العرض: <b>${gpsCoords.lat.toFixed(6)}</b></span><span>خط الطول: <b>${gpsCoords.lng.toFixed(6)}</b></span>`:'<span style="color:var(--text3)">الموقع غير محدد بعد...</span>'}</div>
       <div class="address-box" id="gpsAddressBox" style="${gpsActive?'':'display:none'}">${gpsActive?'⏳ جارٍ تحديد العنوان...':''}</div>
       <div id="rangeStatusBox" style="margin-top:8px"></div>
-      <div class="map-embed" id="mapEmbed">${gpsCoords?`<iframe referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${gpsCoords.lat},${gpsCoords.lng}&z=17&output=embed" loading="lazy"></iframe>`:'<span>جارٍ تحديد موقعك...</span>'}</div>
+      <div class="map-embed" id="mapEmbed">${gpsCoords?`<iframe referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${gpsCoords.lat},${gpsCoords.lng}&z=17&output=embed" loading="lazy"></iframe>`:'<span>اضغط "تفعيل الموقع" لعرض الخريطة</span>'}</div>
     </div>
     <div class="att-actions">
       <button class="att-btn btn-success" onclick="doCheckIn()" ${hasIn?'disabled':''}>
