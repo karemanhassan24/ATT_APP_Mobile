@@ -19,7 +19,7 @@ workflows:
       - name: Patch AndroidManifest for GPS and network
         script: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE; do
+          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE POST_NOTIFICATIONS VIBRATE; do
             if ! grep -q "android.permission.${perm}" "$MANIFEST"; then
               sed -i "/<application/i\\    <uses-permission android:name=\"android.permission.${perm}\" />" "$MANIFEST"
               echo "Added permission ${perm}"
@@ -72,7 +72,7 @@ workflows:
       - name: Patch AndroidManifest for GPS and network
         script: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE; do
+          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE POST_NOTIFICATIONS VIBRATE; do
             if ! grep -q "android.permission.${perm}" "$MANIFEST"; then
               sed -i "/<application/i\\    <uses-permission android:name=\"android.permission.${perm}\" />" "$MANIFEST"
               echo "Added permission ${perm}"
