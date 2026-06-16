@@ -562,13 +562,42 @@ window.toggleNotifPanel=function(){const p=document.getElementById('notifPanel')
 document.addEventListener('click',e=>{if(!e.target.closest('.topbar-notif'))document.getElementById('notifPanel')?.classList.add('hidden')});
 
 /* ── GPS ── */
+function isCapacitorNative(){
+  return !!(window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform());
+}
+async function capacitorGPS(){
+  const perm=await window.Capacitor.nativePromise('Geolocation','checkPermissions',{});
+  if(perm.location!=='granted'&&perm.coarseLocation!=='granted'){
+    const req=await window.Capacitor.nativePromise('Geolocation','requestPermissions',{});
+    if(req.location!=='granted'&&req.coarseLocation!=='granted'){
+      throw new Error('تم رفض إذن الموقع — افتح إعدادات التطبيق وفعّل الموقع');
+    }
+  }
+  return window.Capacitor.nativePromise('Geolocation','getCurrentPosition',{
+    enableHighAccuracy:true,timeout:20000,maximumAge:0
+  });
+}
 async function getGPSPromise(){
+  const msgs={1:'تم رفض إذن الموقع — افتح إعدادات التطبيق وفعّل الموقع',2:'تعذّر تحديد الموقع — تأكد أن GPS مفعّل',3:'انتهت مهلة تحديد الموقع'};
+  const applyPos=pos=>{
+    gpsCoords={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
+    gpsActive=true;updateGPSUI();return gpsCoords;
+  };
+  if(isCapacitorNative()){
+    try{
+      const pos=await capacitorGPS();
+      return applyPos(pos);
+    }catch(e){
+      gpsActive=false;
+      throw new Error(e?.message||'خطأ GPS');
+    }
+  }
   return new Promise((res,rej)=>{
     if(!navigator.geolocation){rej(new Error('المتصفح لا يدعم GPS'));return}
     navigator.geolocation.getCurrentPosition(
-      pos=>{gpsCoords={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};gpsActive=true;updateGPSUI();res(gpsCoords)},
-      err=>{gpsActive=false;const msgs={1:'تم رفض إذن الموقع',2:'تعذّر تحديد الموقع',3:'انتهت مهلة تحديد الموقع'};rej(new Error(msgs[err.code]||'خطأ GPS'))},
-      {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+      pos=>res(applyPos(pos)),
+      err=>{gpsActive=false;rej(new Error(msgs[err.code]||'خطأ GPS'))},
+      {enableHighAccuracy:true,timeout:20000,maximumAge:0}
     );
   });
 }
