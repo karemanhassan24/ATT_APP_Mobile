@@ -109,7 +109,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
 .logout-btn{background:var(--bg3);color:var(--text2);border:1px solid var(--border);padding:6px 12px;font-size:12px;border-radius:8px;cursor:pointer;transition:all .2s}
 .logout-btn:hover{background:var(--danger-bg);color:var(--danger);border-color:#fca5a5}
 .topbar-notif{position:relative}
-.notif-btn{background:var(--bg3);border:1px solid var(--border);width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:all .2s}
+.notif-btn{background:var(--bg3);border:1px solid var(--border);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;transition:all .2s;touch-action:manipulation;position:relative;z-index:1}
 .notif-btn:hover{background:var(--accent-light)}
 .notif-dot{position:absolute;top:0;right:0;width:9px;height:9px;background:var(--danger);border-radius:50%;border:2px solid #fff}
 
@@ -251,7 +251,7 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
 .audit-time{font-size:11px;color:var(--text3);margin-top:2px}
 
 /* NOTIFICATION PANEL */
-.notif-panel{position:absolute;top:44px;left:0;width:300px;background:var(--card);border:1px solid var(--border);border-radius:var(--r2);box-shadow:var(--shadow-lg);z-index:200;max-height:400px;overflow-y:auto}
+.notif-panel{position:absolute;top:44px;right:0;left:auto;width:min(300px,calc(100vw - 24px));background:var(--card);border:1px solid var(--border);border-radius:var(--r2);box-shadow:var(--shadow-lg);z-index:9999;max-height:min(400px,60vh);overflow-y:auto;-webkit-overflow-scrolling:touch}
 .notif-head{padding:12px 16px;font-weight:700;font-size:13px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
 .notif-item{padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;transition:background .15s}
 .notif-item:hover{background:var(--bg3)}
@@ -424,7 +424,7 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
     <div class="topbar-right">
       <div class="user-meta"><div class="name" id="userNameBar">—</div><div class="site" id="userSiteBar">—</div></div>
       <div class="topbar-notif" style="position:relative">
-        <div class="notif-btn" id="notifBtn" onclick="toggleNotifPanel()">🔔<div class="notif-dot hidden" id="notifDot"></div></div>
+        <div class="notif-btn" id="notifBtn" onclick="toggleNotifPanel(event)">🔔<div class="notif-dot hidden" id="notifDot"></div></div>
         <div class="notif-panel hidden" id="notifPanel">
           <div class="notif-head"><span>الإشعارات</span><button style="background:none;border:none;font-size:11px;color:var(--accent2);cursor:pointer" onclick="markAllRead()">تعليم الكل كمقروء</button></div>
           <div id="notifList"><div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">لا توجد إشعارات</div></div>
@@ -540,10 +540,61 @@ async function writeAudit(action, details){
 }
 
 /* ── NOTIFICATIONS ── */
+function isCapacitorNative(){
+  return !!(window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform());
+}
+let _notifChannelReady=false,_nativeNotifPerm=false;
+async function initNativeNotifications(){
+  if(!isCapacitorNative())return;
+  try{
+    const perm=await window.Capacitor.nativePromise('LocalNotifications','checkPermissions',{});
+    if(perm.display!=='granted'){
+      const req=await window.Capacitor.nativePromise('LocalNotifications','requestPermissions',{});
+      _nativeNotifPerm=req.display==='granted';
+      if(!_nativeNotifPerm){
+        toast('يرجى السماح بالإشعارات من إعدادات التطبيق','warn',5000);
+        return;
+      }
+    }else{_nativeNotifPerm=true}
+    if(!_notifChannelReady){
+      await window.Capacitor.nativePromise('LocalNotifications','createChannel',{
+        channel:{
+          id:'attendance-alerts',
+          name:'تنبيهات الحضور',
+          description:'تنبيهات الحضور والإجازات والموقع',
+          importance:5,
+          visibility:1,
+          sound:'default',
+          vibration:true,
+          lights:true
+        }
+      });
+      _notifChannelReady=true;
+    }
+  }catch(e){console.warn('Native notifications init failed',e)}
+}
+async function showNativeNotification(title,body){
+  if(!isCapacitorNative()||!_nativeNotifPerm)return;
+  try{
+    const id=(Date.now()+Math.floor(Math.random()*1000))%2147483647;
+    await window.Capacitor.nativePromise('LocalNotifications','schedule',{
+      notifications:[{
+        id,
+        title:String(title).replace(/^[✅⚠️⏰ℹ️🔔]\s*/u,''),
+        body:String(body),
+        channelId:'attendance-alerts',
+        schedule:{at:new Date(Date.now()+500)},
+        sound:'default'
+      }]
+    });
+  }catch(e){console.warn('showNativeNotification',e)}
+}
 function addNotification(title,body,type='info'){
   notifications.unshift({id:Date.now(),title,body,type,time:new Date(),read:false});
   renderNotifications();
-  document.getElementById('notifDot').classList.remove('hidden');
+  const dot=document.getElementById('notifDot');
+  if(dot)dot.classList.remove('hidden');
+  showNativeNotification(title,body);
 }
 function renderNotifications(){
   const el=document.getElementById('notifList');if(!el)return;
@@ -558,13 +609,19 @@ function renderNotifications(){
 }
 window.readNotif=function(id){const n=notifications.find(x=>x.id===id);if(n)n.read=true;renderNotifications();if(!notifications.some(x=>!x.read))document.getElementById('notifDot').classList.add('hidden')}
 window.markAllRead=function(){notifications.forEach(n=>n.read=true);renderNotifications();document.getElementById('notifDot').classList.add('hidden')}
-window.toggleNotifPanel=function(){const p=document.getElementById('notifPanel');p.classList.toggle('hidden')}
-document.addEventListener('click',e=>{if(!e.target.closest('.topbar-notif'))document.getElementById('notifPanel')?.classList.add('hidden')});
+let _notifPanelTap=false;
+window.toggleNotifPanel=function(ev){
+  if(ev){ev.preventDefault();ev.stopPropagation()}
+  _notifPanelTap=true;
+  document.getElementById('notifPanel')?.classList.toggle('hidden');
+  setTimeout(()=>{_notifPanelTap=false},300);
+}
+document.addEventListener('click',e=>{
+  if(_notifPanelTap)return;
+  if(!e.target.closest('.topbar-notif'))document.getElementById('notifPanel')?.classList.add('hidden');
+});
 
 /* ── GPS ── */
-function isCapacitorNative(){
-  return !!(window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform());
-}
 async function capacitorGPS(){
   const perm=await window.Capacitor.nativePromise('Geolocation','checkPermissions',{});
   if(perm.location!=='granted'&&perm.coarseLocation!=='granted'){
@@ -740,7 +797,11 @@ async function runSpotCheck(){
     const spotCheck={time:new Date().toLocaleTimeString('ar-EG',{hour12:false}),lat:pos.lat,lng:pos.lng,distance,outsideRange};
     const spotChecks=[...(data.spotChecks||[]),spotCheck];
     await updateDoc(ref,{spotChecks});
-    if(outsideRange)toast(`⚠️ تنبيه موقع: تم رصدك خارج نطاق العمل (${distance} متر) أثناء الدوام`,'warn',6000);
+    if(outsideRange){
+      const msg=`تم رصدك خارج نطاق العمل (${distance} متر) أثناء الدوام`;
+      addNotification('⚠️ تنبيه موقع',msg,'warn');
+      toast(`⚠️ تنبيه موقع: ${msg}`,'warn',6000);
+    }
   }catch(e){/* silent — GPS may be unavailable, do not disturb the user */}
 }
 
@@ -906,11 +967,12 @@ function initApp(){
   document.getElementById('userAvatar').textContent=(currentProfile.name||'?')[0];
   const roleMap={superadmin:'سوبر أدمن',admin:'أدمن قسم',manager:'مدير مشروع',employee:'موظف'};
   document.getElementById('roleLabel').textContent=roleMap[currentProfile.role]||currentProfile.role;
-  // Check leave balance and send notifications
-  checkLeaveAlerts();
-  if(currentProfile.role==='superadmin')checkDeviceChangeAlerts();
   if(['superadmin','admin'].includes(currentProfile.role))renderSuperAdminPage();
   else renderManagerPage();
+  initNativeNotifications().then(()=>{
+    checkLeaveAlerts();
+    if(currentProfile.role==='superadmin')checkDeviceChangeAlerts();
+  });
 }
 
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
