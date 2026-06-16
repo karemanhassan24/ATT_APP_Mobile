@@ -1,0 +1,37 @@
+workflows:
+  android-release:
+    name: Android APK Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      android_signing:
+        - attendance_keystore
+      vars:
+        NODE_VERSION: "20"
+      node: $NODE_VERSION
+      java: 17
+    scripts:
+      - name: Install dependencies
+        script: npm install
+      - name: Add Android platform if missing
+        script: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+      - name: Patch AndroidManifest for GPS and network
+        script: bash scripts/patch-android-manifest.sh
+      - name: Sync Capacitor Android
+        script: npx cap sync android
+      - name: Build release APK
+        script: |
+          cd android
+          ./gradlew assembleRelease
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - YOUR_EMAIL@example.com
+        notify:
+          success: true
+          failure: true
