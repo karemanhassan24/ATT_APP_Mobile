@@ -23,7 +23,14 @@ In Android Studio: **Build → Build Bundle(s) / APK(s) → Build APK(s)**.
    ```
 4. In Codemagic → **Team settings → Code signing identities → Android**, upload the keystore and name it **`attendance_keystore`** (must match `codemagic.yaml`).
 5. Update the email in `codemagic.yaml` under `publishing.email.recipients`.
-6. Start workflow **android-release** and download the APK from Artifacts.
+6. Start workflow **android-debug** (testing) or **android-release** (final) and download the APK from Artifacts.
+
+### Debug vs release
+
+| Workflow | APK file | Use for |
+|----------|----------|---------|
+| `android-debug` | `app-debug.apk` | Testing on your phone (no keystore needed) |
+| `android-release` | `app-release.apk` | Final distribution (requires keystore) |
 
 ## App details
 

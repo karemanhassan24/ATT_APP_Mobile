@@ -16,26 +16,16 @@ workflows:
           if [ ! -d "android" ]; then
             npx cap add android
           fi
-      - name: Patch AndroidManifest for GPS and network
-        script: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE POST_NOTIFICATIONS VIBRATE; do
-            if ! grep -q "android.permission.${perm}" "$MANIFEST"; then
-              sed -i "/<application/i\\    <uses-permission android:name=\"android.permission.${perm}\" />" "$MANIFEST"
-              echo "Added permission ${perm}"
-            fi
-          done
-          if ! grep -q 'android.hardware.location.gps' "$MANIFEST"; then
-            sed -i "/<application/i\\    <uses-feature android:name=\"android.hardware.location.gps\" android:required=\"false\" />" "$MANIFEST"
-            echo "Added GPS hardware feature"
-          fi
-          if ! grep -q 'android:usesCleartextTraffic' "$MANIFEST"; then
-            sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
-            echo "Enabled usesCleartextTraffic"
-          fi
-          echo "AndroidManifest.xml patched successfully"
       - name: Sync Capacitor Android
         script: npx cap sync android
+      - name: Patch AndroidManifest for GPS and notifications
+        script: bash scripts/patch-android-manifest.sh
+      - name: Verify location permissions in manifest
+        script: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android.permission.ACCESS_FINE_LOCATION' "$MANIFEST"
+          grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
+          echo "Location permissions verified in AndroidManifest.xml"
       - name: Build debug APK
         script: |
           cd android
@@ -69,26 +59,16 @@ workflows:
           if [ ! -d "android" ]; then
             npx cap add android
           fi
-      - name: Patch AndroidManifest for GPS and network
-        script: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE POST_NOTIFICATIONS VIBRATE; do
-            if ! grep -q "android.permission.${perm}" "$MANIFEST"; then
-              sed -i "/<application/i\\    <uses-permission android:name=\"android.permission.${perm}\" />" "$MANIFEST"
-              echo "Added permission ${perm}"
-            fi
-          done
-          if ! grep -q 'android.hardware.location.gps' "$MANIFEST"; then
-            sed -i "/<application/i\\    <uses-feature android:name=\"android.hardware.location.gps\" android:required=\"false\" />" "$MANIFEST"
-            echo "Added GPS hardware feature"
-          fi
-          if ! grep -q 'android:usesCleartextTraffic' "$MANIFEST"; then
-            sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
-            echo "Enabled usesCleartextTraffic"
-          fi
-          echo "AndroidManifest.xml patched successfully"
       - name: Sync Capacitor Android
         script: npx cap sync android
+      - name: Patch AndroidManifest for GPS and notifications
+        script: bash scripts/patch-android-manifest.sh
+      - name: Verify location permissions in manifest
+        script: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          grep -q 'android.permission.ACCESS_FINE_LOCATION' "$MANIFEST"
+          grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
+          echo "Location permissions verified in AndroidManifest.xml"
       - name: Build release APK
         script: |
           cd android
