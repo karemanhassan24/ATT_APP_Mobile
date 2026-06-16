@@ -1,6 +1,53 @@
 workflows:
+  android-debug:
+    name: Android Debug APK (for testing)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      vars:
+        NODE_VERSION: "20"
+      node: $NODE_VERSION
+      java: 21
+    scripts:
+      - name: Install dependencies
+        script: npm install
+      - name: Add Android platform if missing
+        script: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+      - name: Patch AndroidManifest for GPS and network
+        script: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          for perm in INTERNET ACCESS_FINE_LOCATION ACCESS_COARSE_LOCATION ACCESS_NETWORK_STATE; do
+            if ! grep -q "android.permission.${perm}" "$MANIFEST"; then
+              sed -i "/<application/i\\    <uses-permission android:name=\"android.permission.${perm}\" />" "$MANIFEST"
+              echo "Added permission ${perm}"
+            fi
+          done
+          if ! grep -q 'android:usesCleartextTraffic' "$MANIFEST"; then
+            sed -i 's/<application /<application android:usesCleartextTraffic="true" /' "$MANIFEST"
+            echo "Enabled usesCleartextTraffic"
+          fi
+          echo "AndroidManifest.xml patched successfully"
+      - name: Sync Capacitor Android
+        script: npx cap sync android
+      - name: Build debug APK
+        script: |
+          cd android
+          ./gradlew assembleDebug
+    artifacts:
+      - android/app/build/outputs/apk/debug/*.apk
+    publishing:
+      email:
+        recipients:
+          - YOUR_EMAIL@example.com
+        notify:
+          success: true
+          failure: true
+
   android-release:
-    name: Android APK Build
+    name: Android Release APK
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
@@ -39,7 +86,7 @@ workflows:
           cd android
           ./gradlew assembleRelease
     artifacts:
-      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/apk/release/*.apk
     publishing:
       email:
         recipients:
