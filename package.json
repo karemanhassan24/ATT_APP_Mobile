@@ -5,8 +5,9 @@
   "private": true,
   "scripts": {
     "build": "echo \"No build step — static HTML in www/\"",
-    "cap:sync": "npx cap sync android",
-    "cap:open": "npx cap open android"
+    "cap:sync": "npx cap sync android && powershell -ExecutionPolicy Bypass -File scripts/patch-android-manifest.ps1",
+    "cap:open": "npx cap open android",
+    "patch:android": "powershell -ExecutionPolicy Bypass -File scripts/patch-android-manifest.ps1"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",
