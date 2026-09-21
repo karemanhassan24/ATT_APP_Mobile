@@ -2847,7 +2847,7 @@ window.showAddUserModal=function(role){
     </div>
     <div class="form-row">
       <div><label class="field-label">نطاق السماح بالمتر</label><input type="number" id="mRadius" value="300" min="50" step="10" style="direction:ltr"/></div>
-      <div style="display:flex;align-items:end"><button type="button" class="btn-ghost" style="width:100%" onclick="fillWorkLocationFromGPS('m')">📌 استخدام موقعي الحالي</button></div>
+      <div style="display:flex;align-items:end"><button type="button" class="btn-ghost" style="width:100%" onclick="fillWorkLocationFromGPS('m',this)">📌 استخدام موقعي الحالي</button></div>
     </div>
     <div class="notice notice-info" style="font-size:12px;margin-top:-6px">لو المدير بصم خارج النطاق سيتم تسجيل البصمة مع ملاحظة: خارج نطاق العمل، ولن يتم منعه من التسجيل.</div>`:`
     ${permissionsPickerHtml('m',role,defaultPermissions(role))}
@@ -2906,13 +2906,26 @@ window.updateAdminPermissions=async function(uid){
   }catch(e){toast('خطأ: '+e.message,'danger')}
 };
 
-window.fillWorkLocationFromGPS=function(prefix){
-  if(!gpsActive||!gpsCoords){toast('يرجى تشغيل/تحديد موقع GPS أولاً','warn');return}
-  const latEl=document.getElementById(prefix+'Lat');
-  const lngEl=document.getElementById(prefix+'Lng');
-  if(latEl)latEl.value=Number(gpsCoords.lat).toFixed(6);
-  if(lngEl)lngEl.value=Number(gpsCoords.lng).toFixed(6);
-  toast('تم إدخال إحداثيات موقع العمل من موقعك الحالي','success');
+window.fillWorkLocationFromGPS=async function(prefix,btn){
+  const fill=c=>{
+    const latEl=document.getElementById(prefix+'Lat');
+    const lngEl=document.getElementById(prefix+'Lng');
+    if(latEl)latEl.value=Number(c.lat).toFixed(6);
+    if(lngEl)lngEl.value=Number(c.lng).toFixed(6);
+  };
+  const label=btn?btn.innerHTML:'';
+  if(btn){btn.disabled=true;btn.innerHTML='⏳ جارٍ تحديد الموقع...'}
+  try{
+    const allowed=await requestLocationPermission();
+    if(!allowed)throw new Error('لم يتم السماح بالموقع — افتح: الإعدادات → التطبيقات → نظام الحضور → الأذونات → الموقع → السماح');
+    fill(await getGPSPromise());
+    toast('تم إدخال إحداثيات موقع العمل من موقعك الحالي','success');
+  }catch(e){
+    if(gpsCoords){fill(gpsCoords);toast('تعذّر تحديث الموقع — تم استخدام آخر موقع معروف','warn',6000)}
+    else toast(e.message||'تعذّر تحديد الموقع — تأكد أن GPS مفعّل','danger',7000);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML=label}
+  }
 };
 
 window.toggleCustomHours=function(prefix){
@@ -3019,7 +3032,7 @@ window.showEditUserModal=async function(uid){
     </div>
     <div class="form-row">
       <div><label class="field-label">نطاق السماح بالمتر</label><input type="number" id="eRadius" value="${u.workRadius||300}" min="50" step="10" style="direction:ltr"/></div>
-      <div style="display:flex;align-items:end"><button type="button" class="btn-ghost" style="width:100%" onclick="fillWorkLocationFromGPS('e')">📌 استخدام موقعي الحالي</button></div>
+      <div style="display:flex;align-items:end"><button type="button" class="btn-ghost" style="width:100%" onclick="fillWorkLocationFromGPS('e',this)">📌 استخدام موقعي الحالي</button></div>
     </div>
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeModal()">إلغاء</button>
