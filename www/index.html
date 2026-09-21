@@ -42,6 +42,16 @@ html,body{height:100%;font-family:'IBM Plex Sans Arabic',sans-serif;background:v
 .hidden{display:none!important}
 input,select,textarea{background:var(--bg3);border:1.5px solid var(--border);color:var(--text);padding:10px 13px;border-radius:var(--r);font-size:14px;width:100%;outline:none;transition:all .2s;font-family:inherit;direction:rtl}
 input:focus,select:focus,textarea:focus{border-color:var(--accent2);background:#fff;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+.ms-dropdown{position:relative}
+.ms-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--bg3);border:1.5px solid var(--border);color:var(--text);padding:10px 13px;border-radius:var(--r);font-size:14px;font-weight:400;text-align:right}
+.ms-toggle:hover{border-color:var(--accent2)}
+.ms-caret{color:var(--text3);font-size:12px}
+.ms-panel{position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:30;background:var(--card);border:1.5px solid var(--border);border-radius:var(--r);box-shadow:0 8px 24px rgba(15,23,42,.14);padding:6px;max-height:230px;overflow:auto}
+.ms-option{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;font-size:13px;cursor:pointer}
+.ms-option:hover{background:var(--bg3)}
+.ms-option input{width:auto}
+.perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px;margin-bottom:8px}
+@media(max-width:520px){.perm-grid{grid-template-columns:1fr}}
 input::placeholder,textarea::placeholder{color:var(--text3)}
 input[disabled]{opacity:.5;cursor:not-allowed}
 button{cursor:pointer;border:none;border-radius:var(--r);font-size:14px;padding:10px 20px;transition:all .18s;font-family:inherit;font-weight:500}
@@ -478,11 +488,176 @@ function nowStr(){const d=new Date();return `${String(d.getHours()).padStart(2,'
 function fmtDate(d){const days=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];const months=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];return `${days[d.getDay()]}، ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`}
 function haversine(lat1,lng1,lat2,lng2){const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))}
 function fmtWorkHours(wh){if(!wh||wh==='—')return'—';if(String(wh).includes(':'))return wh+'h';const f=parseFloat(wh);if(isNaN(f))return wh;const h=Math.floor(f);const m=Math.round((f-h)*60);return m>0?`${h}:${String(m).padStart(2,'0')}h`:`${h}:00h`}
-function statusBadge(s){const m={present:'<span class="badge badge-success">✅ حاضر</span>',absent:'<span class="badge badge-danger">❌ غائب</span>',partial:'<span class="badge badge-warn">⚠️ غادر مبكراً</span>',checkedin:'<span class="badge badge-info">🟡 الدوام جارٍ (لم يسجل خروج)</span>',leave:'<span class="badge badge-gray">🏖️ إجازة</span>',late:'<span class="badge badge-warn">⏰ متأخر</span>'};return m[s]||'<span class="badge badge-gray">—</span>'}
+function statusBadge(s){const m={present:'<span class="badge badge-success">✅ حاضر</span>',absent:'<span class="badge badge-danger">❌ غائب</span>',partial:'<span class="badge badge-warn">⚠️ غادر مبكراً</span>',checkedin:'<span class="badge badge-info">🟡 الدوام جارٍ (لم يسجل خروج)</span>',leave:'<span class="badge badge-gray">🏖️ إجازة</span>',late:'<span class="badge badge-warn">⏰ متأخر</span>',extra:'<span class="badge badge-purple">⭐ يوم إضافي</span>',weekend:'<span class="badge badge-gray">🏖️ راحة</span>'};return m[s]||'<span class="badge badge-gray">—</span>'}
 function leaveBadge(s){const m={approved:'<span class="badge badge-success">✅ موافق عليها</span>',rejected:'<span class="badge badge-danger">❌ مرفوضة</span>',pending:'<span class="badge badge-warn">⏳ قيد الانتظار</span>'};return m[s]||'—'}
 function leaveTypeName(t){return {annual:'سنوية',sick:'مرضية',emergency:'اضطرارية',unpaid:'بدون راتب',permission:'إذن (تأخير/مأمورية)',other:'أخرى'}[t]||t}
 function calcLeaveDays(l){return Math.max(1,Math.round((new Date(l.to)-new Date(l.from))/86400000)+1)}
 function leaveTotalLabel(used,remaining){return `مستخدم ${used} من أصل ${used+remaining} يوم — المتبقي ${remaining}`;}
+const WEEKDAY_AR=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+const DEFAULT_WEEKEND_DAYS=[5];
+function normalizeWeekendDays(raw){
+  if(!Array.isArray(raw)||!raw.length)return DEFAULT_WEEKEND_DAYS.slice();
+  const days=[...new Set(raw.map(n=>Number(n)).filter(n=>Number.isInteger(n)&&n>=0&&n<=6))];
+  return days.length?days.sort((a,b)=>a-b):DEFAULT_WEEKEND_DAYS.slice();
+}
+function isWeekendDow(dow,weekendDays){return normalizeWeekendDays(weekendDays).includes(Number(dow))}
+function isWeekendDateStr(dateStr,weekendDays){
+  if(!dateStr)return false;
+  const [y,m,d]=String(dateStr).split('-').map(Number);
+  if(!y||!m||!d)return false;
+  return isWeekendDow(new Date(y,m-1,d).getDay(),weekendDays);
+}
+function isExtraWorkRecord(r,weekendDays){
+  if(!r)return false;
+  if(r.extraDay===true||r.weekendWork===true)return true;
+  return isWeekendDateStr(r.date,weekendDays);
+}
+function splitAttendanceByWeekend(records,weekendDays){
+  const regular=[],extra=[];
+  for(const r of records||[]){
+    if(isExtraWorkRecord(r,weekendDays))extra.push(r);
+    else regular.push(r);
+  }
+  return {regular,extra};
+}
+function attendanceStatusBadge(r,schedule,weekendDays){
+  if(isExtraWorkRecord(r,weekendDays))return statusBadge('extra');
+  const st=(schedule==='flexible'&&r.status==='late')?'present':r.status;
+  return statusBadge(st);
+}
+function countWorkingDaysElapsed(year,month1to12,dayLimit,weekendDays){
+  let n=0;
+  for(let d=1;d<=dayLimit;d++){
+    if(!isWeekendDow(new Date(year,month1to12-1,d).getDay(),weekendDays))n++;
+  }
+  return n;
+}
+function weekendDaysLabel(weekendDays){return normalizeWeekendDays(weekendDays).map(i=>WEEKDAY_AR[i]).join('، ')||'—'}
+function weekendDaysPickerHtml(prefix,selected){
+  const sel=normalizeWeekendDays(selected);
+  return `<div class="form-row-1" style="margin-bottom:12px">
+    <label class="field-label">أيام نهاية الأسبوع (راحة المدير)</label>
+    <div class="ms-dropdown">
+      <button type="button" class="ms-toggle" onclick="toggleWeekendDropdown('${prefix}')">
+        <span id="${prefix}WeekendSummary">${weekendDaysLabel(sel)}</span>
+        <span class="ms-caret">▾</span>
+      </button>
+      <div class="ms-panel hidden" id="${prefix}WeekendPanel">
+        ${WEEKDAY_AR.map((d,i)=>`
+        <label class="ms-option">
+          <input type="checkbox" id="${prefix}Wd${i}" ${sel.includes(i)?'checked':''} onchange="updateWeekendSummary('${prefix}')"/>
+          <span>${d}</span>
+        </label>`).join('')}
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">اختر يوماً أو أكثر. لا يُحتسب الغياب في هذه الأيام.</div>
+  </div>`;
+}
+function readWeekendDays(prefix){
+  const days=[];
+  for(let i=0;i<7;i++){
+    const el=document.getElementById(prefix+'Wd'+i);
+    if(el&&el.checked)days.push(i);
+  }
+  return days.length?days:DEFAULT_WEEKEND_DAYS.slice();
+}
+window.toggleWeekendDropdown=function(prefix){
+  const panel=document.getElementById(prefix+'WeekendPanel');
+  if(!panel)return;
+  const willOpen=panel.classList.contains('hidden');
+  document.querySelectorAll('.ms-panel').forEach(p=>p.classList.add('hidden'));
+  panel.classList.toggle('hidden',!willOpen);
+};
+window.updateWeekendSummary=function(prefix){
+  const el=document.getElementById(prefix+'WeekendSummary');
+  if(el)el.textContent=weekendDaysLabel(readWeekendDays(prefix));
+};
+document.addEventListener('click',e=>{
+  if(e.target.closest('.ms-dropdown'))return;
+  document.querySelectorAll('.ms-panel').forEach(p=>p.classList.add('hidden'));
+});
+const PERM_DEFS=[
+  {key:'dash',label:'📊 الرئيسية'},
+  {key:'attend',label:'📋 الحضور'},
+  {key:'leaves',label:'🏖️ الإجازات (عرض وموافقة)'},
+  {key:'leavesDelete',label:'🗑️ حذف طلبات الإجازة'},
+  {key:'users',label:'👥 عرض المستخدمين'},
+  {key:'usersManage',label:'✏️ إضافة وتعديل المديرين'},
+  {key:'usersAdmin',label:'🔑 إدارة الأدمنز والصلاحيات'},
+  {key:'usersDelete',label:'🚫 إيقاف وحذف المستخدمين'},
+  {key:'heatmap',label:'🔥 خريطة الغياب'},
+  {key:'monthly',label:'📑 التقرير الشهري'},
+  {key:'yearly',label:'📅 الملخص السنوي'},
+  {key:'audit',label:'🔍 سجل التدقيق'},
+  {key:'settings',label:'⚙️ إعدادات النظام'},
+];
+const ADMIN_TAB_PERMS={admDash:'dash',admAttend:'attend',admLeaves:'leaves',admUsers:'users',admHeatmap:'heatmap',admMonthly:'monthly',admYearly:'yearly',admAudit:'audit',admSettings:'settings'};
+function defaultPermissions(role){
+  const all={};
+  PERM_DEFS.forEach(p=>{all[p.key]=role==='superadmin'});
+  if(role==='admin'){
+    ['dash','attend','leaves','users','usersManage','heatmap','monthly','yearly','audit'].forEach(k=>{all[k]=true});
+  }
+  return all;
+}
+function normalizePermissions(role,raw){
+  const def=defaultPermissions(role);
+  if(!raw||typeof raw!=='object')return def;
+  const out={};
+  PERM_DEFS.forEach(p=>{out[p.key]=raw[p.key]===true});
+  return Object.values(out).some(Boolean)?out:def;
+}
+function hasPerm(key){
+  if(!currentProfile)return false;
+  const role=currentProfile.role;
+  if(role!=='admin'&&role!=='superadmin')return false;
+  return normalizePermissions(role,currentProfile.permissions)[key]===true;
+}
+function requirePerm(key,msg){
+  if(hasPerm(key))return true;
+  toast(msg||'ليس لديك صلاحية لهذا الإجراء','danger');
+  return false;
+}
+function permissionsLabel(u){
+  const map=normalizePermissions(u.role,u.permissions);
+  const on=PERM_DEFS.filter(p=>map[p.key]).map(p=>p.label.replace(/^[^\s]+\s/,''));
+  return on.length?on.join('، '):'لا توجد صلاحيات';
+}
+function permissionsPickerHtml(prefix,role,selected){
+  const sel=normalizePermissions(role,selected);
+  return `<div style="font-size:13px;font-weight:700;margin:4px 0 8px">🔐 صلاحيات هذا المستخدم</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button type="button" class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="setAllPerms('${prefix}',true)">تحديد الكل</button>
+      <button type="button" class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="setAllPerms('${prefix}',false)">إلغاء الكل</button>
+    </div>
+    <div class="perm-grid">
+      ${PERM_DEFS.map(p=>`<label class="ms-option">
+        <input type="checkbox" id="${prefix}Perm_${p.key}" ${sel[p.key]?'checked':''}/>
+        <span>${p.label}</span>
+      </label>`).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:12px">كل مستخدم له صلاحياته الخاصة، ويظهر له في التطبيق ما يُفعَّل هنا فقط.</div>`;
+}
+function readPermissions(prefix,role){
+  const out={};
+  PERM_DEFS.forEach(p=>{out[p.key]=!!document.getElementById(prefix+'Perm_'+p.key)?.checked});
+  return Object.values(out).some(Boolean)?out:defaultPermissions(role);
+}
+window.setAllPerms=function(prefix,val){
+  PERM_DEFS.forEach(p=>{const el=document.getElementById(prefix+'Perm_'+p.key);if(el)el.checked=!!val});
+};
+function parseWeekendDaysCsv(v){
+  if(!v)return DEFAULT_WEEKEND_DAYS.slice();
+  const nameMap={sun:0,sunday:0,'الأحد':0,mon:1,monday:1,'الاثنين':1,tue:2,tuesday:2,'الثلاثاء':2,wed:3,wednesday:3,'الأربعاء':3,thu:4,thursday:4,'الخميس':4,fri:5,friday:5,'الجمعة':5,sat:6,saturday:6,'السبت':6};
+  const parts=String(v).split(/[|,،\s]+/).map(s=>s.trim()).filter(Boolean);
+  const days=[];
+  for(const p of parts){
+    if(/^[0-6]$/.test(p))days.push(Number(p));
+    else if(nameMap[p.toLowerCase()]!==undefined)days.push(nameMap[p.toLowerCase()]);
+    else if(nameMap[p]!==undefined)days.push(nameMap[p]);
+  }
+  return normalizeWeekendDays(days);
+}
 function monthStartEnd(month){
   const [y,m]=month.split('-').map(Number);
   const start=new Date(y,m-1,1);
@@ -1002,7 +1177,7 @@ function initApp(){
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('appPage').classList.remove('hidden');
   document.getElementById('userNameBar').textContent=currentProfile.name;
-  document.getElementById('userSiteBar').textContent=currentProfile.site||'—';
+  document.getElementById('userSiteBar').textContent=[currentProfile.jobTitle,currentProfile.site].filter(Boolean).join(' — ')||'—';
   document.getElementById('userAvatar').textContent=(currentProfile.name||'?')[0];
   const roleMap={superadmin:'سوبر أدمن',admin:'أدمن قسم',manager:'مدير مشروع',employee:'موظف'};
   document.getElementById('roleLabel').textContent=roleMap[currentProfile.role]||currentProfile.role;
@@ -1010,7 +1185,7 @@ function initApp(){
   else renderManagerPage();
   initNativeNotifications().then(()=>{
     checkLeaveAlerts();
-    if(currentProfile.role==='superadmin')checkDeviceChangeAlerts();
+    if(hasPerm('users'))checkDeviceChangeAlerts();
   });
 }
 
@@ -1113,13 +1288,17 @@ function renderAttTab(rec){
   // Build schedule info
   const schedMap={morning:'🌅 صباحي: 8:00 — 16:00',evening:'🌆 مسائي: 14:00 — 22:00',flexible:'🔀 مواعيد مرنة',custom:`🕐 مخصص: ${currentProfile.customStartTime||'—'} — ${currentProfile.customEndTime||'—'}`};
   const schedLabel=schedMap[currentProfile.schedule]||'—';
+  const weekendLabel=weekendDaysLabel(currentProfile.weekendDays);
+  const todayIsWeekend=isWeekendDow(new Date().getDay(),currentProfile.weekendDays);
   el.innerHTML=`
     <div id="permissionBanner"></div>
     <div class="schedule-info-bar">
       <span>📅 جدول دوامك:</span>
       <b>${schedLabel}</b>
+      <span style="font-size:12px">🏖️ نهاية الأسبوع: <b>${weekendLabel}</b></span>
       ${currentProfile.site?`<span style="margin-right:auto;font-size:12px;opacity:.8">📍 ${currentProfile.site}</span>`:''}
     </div>
+    ${todayIsWeekend?`<div class="notice notice-info" style="margin-bottom:12px">🏖️ اليوم من أيام راحتك (${WEEKDAY_AR[new Date().getDay()]}) — لن يُحتسب غياب إذا لم تسجّل حضور. يمكنك البصم إذا عملت اليوم.</div>`:''}
     ${hasIn&&!hasOut?`<div class="countdown-card" id="countdownCard">
       <div><div class="countdown-label">⏳ الوقت المتبقي لإتمام 8 ساعات</div><div style="font-size:11px;opacity:.7;margin-top:2px">دخلت: ${rec.checkIn}</div></div>
       <div class="countdown-time" id="countdownTimer">--:--:--</div>
@@ -1312,9 +1491,10 @@ window.doCheckIn=async function(){
   const schedule=configSnap.exists()?configSnap.data():{startTime:'09:00',lateThreshold:15};
   // المواعيد المرنة: لا يُحسب تأخير، المهم حساب ساعات العمل فقط
   const isFlexible=currentProfile.schedule==='flexible';
+  const isExtraDay=currentProfile.role==='manager'&&isWeekendDow(new Date().getDay(),currentProfile.weekendDays);
   let isLate=false;
   let diffMins=0;
-  if(!isFlexible){
+  if(!isFlexible&&!isExtraDay){
     const [sh,sm]=schedule.startTime.split(':').map(Number);
     const [nh,nm]=now.split(':').map(Number);
     diffMins=(nh*60+nm)-(sh*60+sm);
@@ -1325,10 +1505,14 @@ window.doCheckIn=async function(){
     await setDoc(doc(db,`attendance/${currentUser.uid}/records/${today}`),{
       checkIn:now,checkOut:null,inLat:gpsCoords.lat,inLng:gpsCoords.lng,inAddress:address,
       workDistance:workDistance===null?null:Math.round(workDistance),workRadius,locationStatus:rangeNote,outsideWorkRange:isOutsideWorkRange,
-      status:isFlexible?'checkedin':isLate?'late':'checkedin',date:today,uid:currentUser.uid,lateMinutes:isFlexible?0:isLate?diffMins:0,updatedAt:serverTimestamp()
+      status:isFlexible||isExtraDay?'checkedin':isLate?'late':'checkedin',date:today,uid:currentUser.uid,lateMinutes:isFlexible||isExtraDay?0:isLate?diffMins:0,
+      extraDay:isExtraDay,weekendWork:isExtraDay,updatedAt:serverTimestamp()
     });
-    await writeAudit('check_in',{date:today,time:now,address,late:isLate,flexible:isFlexible,locationStatus:rangeNote});
-    if(isFlexible){
+    await writeAudit('check_in',{date:today,time:now,address,late:isLate,flexible:isFlexible,extraDay:isExtraDay,locationStatus:rangeNote});
+    if(isExtraDay){
+      showCheckinConfirm('in',now,`<br><span style="color:#7c3aed">⭐ يوم إضافي — دوام في يوم راحة</span><br><span style="color:${isOutsideWorkRange?'var(--warn)':'var(--success)'}">📍 ${rangeNote}</span>`);
+      addNotification('يوم إضافي','تم تسجيل الحضور في يوم راحة وسيُحسب يوماً إضافياً في التقارير','info');
+    } else if(isFlexible){
       showCheckinConfirm('in',now,`<br><span style="color:var(--success)">دوام مرن — سيتم حساب ساعات عملك ✨</span><br><span style="color:${isOutsideWorkRange?'var(--warn)':'var(--success)'}">📍 ${rangeNote}</span>`);
     } else if(isLate){
       showCheckinConfirm('in',now,`<br><span style="color:var(--warn)">⚠️ تأخير ${diffMins} دقيقة</span><br><span style="color:${isOutsideWorkRange?'var(--warn)':'var(--success)'}">📍 ${rangeNote}</span>`);
@@ -1354,14 +1538,16 @@ window.doCheckOut=async function(){
     workHours=wm>0?`${wh}:${String(wm).padStart(2,'0')}`:`${wh}:00`;
   }
   const address=await getAddress(gpsCoords.lat,gpsCoords.lng);
+  const extraDay=!!(rec?.extraDay||rec?.weekendWork||(currentProfile.role==='manager'&&isWeekendDow(new Date().getDay(),currentProfile.weekendDays)));
   try{
     await updateDoc(doc(db,`attendance/${currentUser.uid}/records/${today}`),{
-      checkOut:now,outLat:gpsCoords.lat,outLng:gpsCoords.lng,outAddress:address,status:'present',workHours,updatedAt:serverTimestamp()
+      checkOut:now,outLat:gpsCoords.lat,outLng:gpsCoords.lng,outAddress:address,status:'present',workHours,
+      extraDay,weekendWork:extraDay,updatedAt:serverTimestamp()
     });
-    await writeAudit('check_out',{date:today,time:now,workHours});
+    await writeAudit('check_out',{date:today,time:now,workHours,extraDay});
     const wh=Math.floor(workMinutesTotal/60);const wm=workMinutesTotal%60;
     const hoursLabel=wm>0?`${wh} ساعة و${wm} دقيقة`:`${wh} ساعة`;
-    showCheckinConfirm('out',now,`<br>إجمالي العمل: <b>${hoursLabel}</b>`);
+    showCheckinConfirm('out',now,`<br>إجمالي العمل: <b>${hoursLabel}</b>${extraDay?'<br><span style="color:#7c3aed">⭐ يوم إضافي</span>':''}`);
     if(_countdownTimer){clearInterval(_countdownTimer);_countdownTimer=null;}
     const newRec=await getTodayRecord(currentUser.uid);renderAttTab(newRec);if(gpsActive)setTimeout(updateGPSUI,100);startClock();
   }catch(e){toast('حدث خطأ: '+e.message,'danger')}
@@ -1584,7 +1770,7 @@ async function renderHistoryTab(){
                 <td style="color:var(--danger);font-weight:600">${r.checkOut||'—'}</td>
                 <td>${fmtWorkHours(r.workHours)}</td>
                 <td style="font-size:11px;color:var(--text2);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.inAddress||''}">${r.inAddress?r.inAddress.substring(0,28)+'...':'—'}</td>
-                <td>${statusBadge(currentProfile.schedule==='flexible'&&r.status==='late'?'present':r.status)}</td>
+                <td>${attendanceStatusBadge(r,currentProfile.schedule,currentProfile.weekendDays)}</td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -1616,8 +1802,10 @@ async function renderPersonalReport(){
     }));
     leaveDayRows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
     permissionDayRows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-    const present=attendanceRows.length;
-    const late=currentProfile.schedule==='flexible'?0:attendanceRows.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length;
+    const presentWork=splitAttendanceByWeekend(attendanceRows,currentProfile.weekendDays);
+    const present=presentWork.regular.length;
+    const extraDays=presentWork.extra.length;
+    const late=currentProfile.schedule==='flexible'?0:presentWork.regular.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length;
     const totalHours=attendanceRows.reduce((s,r)=>{
       const wh=String(r.workHours||'0');
       if(wh.includes(':')){const [h,m]=wh.split(':').map(Number);return s+(h||0)+((m||0)/60)}
@@ -1636,6 +1824,7 @@ async function renderPersonalReport(){
         </div>
         <div class="stats-row">
           <div class="stat-card"><div class="icon">✅</div><div class="num" style="color:var(--success)">${present}</div><div class="lbl">أيام الحضور</div></div>
+          <div class="stat-card"><div class="icon">⭐</div><div class="num" style="color:#7c3aed">${extraDays}</div><div class="lbl">أيام إضافية</div></div>
           ${currentProfile.schedule!=='flexible'?`<div class="stat-card"><div class="icon">⏰</div><div class="num" style="color:var(--warn)">${late}</div><div class="lbl">أيام التأخير</div></div>`:''}
           <div class="stat-card"><div class="icon">🏖️</div><div class="num" style="color:var(--accent3)">${leaveDayRows.length}</div><div class="lbl">أيام الإجازة</div></div>
           <div class="stat-card"><div class="icon">🕐</div><div class="num" style="color:#0ea5e9">${permissionDayRows.length}</div><div class="lbl">أيام الإذن</div></div>
@@ -1654,7 +1843,7 @@ async function renderPersonalReport(){
               <td>${fmtWorkHours(r.workHours)}</td>
               ${currentProfile.schedule!=='flexible'?`<td style="color:var(--warn)">${r.lateMinutes?r.lateMinutes+'د':'—'}</td>`:''}
               <td style="font-size:11px;color:var(--text2);max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.inAddress||''}">${r.inAddress?r.inAddress.substring(0,35)+'...':'—'}</td>
-              <td>${statusBadge(currentProfile.schedule==='flexible'&&r.status==='late'?'present':r.status)}</td>
+              <td>${attendanceStatusBadge(r,currentProfile.schedule,currentProfile.weekendDays)}</td>
             </tr>`).join('')}
           </tbody>
         </table></div>
@@ -1694,7 +1883,7 @@ window.exportManagerExcel=async function(){
     const month=data.month||document.getElementById('reportMonth')?.value||'';
     const att=(data.attendanceRows||[]).map(r=>[
       new Date(r.date).toLocaleDateString('ar-EG',{weekday:'long'}),r.date||'',r.checkIn||'',r.checkOut||'',fmtWorkHours(r.workHours)||'',r.lateMinutes||'',r.inAddress||'',
-      r.status==='present'?'حاضر':r.status==='late'?'متأخر':r.status==='checkedin'?'الدوام جارٍ (لم يسجل خروج)':r.status||''
+      isExtraWorkRecord(r,currentProfile.weekendDays)?'يوم إضافي':r.status==='present'?'حاضر':r.status==='late'?'متأخر':r.status==='checkedin'?'الدوام جارٍ (لم يسجل خروج)':r.status||''
     ]);
     const leaves=(data.leaveDayRows||[]).map(l=>[new Date(l.date).toLocaleDateString('ar-EG',{weekday:'long'}),l.date||'',l.from||'',l.to||'',leaveTypeName(l.type),l.reason||'',l.decidedBy||'']);
     const permissions=(data.permissionDayRows||[]).map(l=>[new Date(l.date).toLocaleDateString('ar-EG',{weekday:'long'}),l.date||'',l.reason||'',l.decidedBy||'']);
@@ -1712,20 +1901,26 @@ window.exportManagerExcel=async function(){
 ══════════════════════════════════════ */
 async function renderSuperAdminPage(){
   const el=document.getElementById('mainContent');
-  const isSuperAdmin=currentProfile.role==='superadmin';
+  const tabs=[
+    {id:'admDash',perm:'dash',label:'📊 الرئيسية'},
+    {id:'admAttend',perm:'attend',label:'📋 الحضور'},
+    {id:'admLeaves',perm:'leaves',label:'🏖️ الإجازات'},
+    {id:'admUsers',perm:'users',label:'👥 المستخدمين'},
+    {id:'admHeatmap',perm:'heatmap',label:'🔥 خريطة الغياب'},
+    {id:'admMonthly',perm:'monthly',label:'📑 التقرير الشهري'},
+    {id:'admYearly',perm:'yearly',label:'📅 الملخص السنوي'},
+    {id:'admAudit',perm:'audit',label:'🔍 سجل التدقيق'},
+    {id:'admSettings',perm:'settings',label:'⚙️ الإعدادات'},
+  ].filter(t=>hasPerm(t.perm));
+  if(!tabs.length){
+    el.innerHTML=`<div class="notice notice-warn" style="margin:20px">ليس لديك أي صلاحيات ظاهرة. تواصل مع السوبر أدمن لتفعيل صلاحيات لحسابك.</div>`;
+    return;
+  }
   el.innerHTML=`
     <div class="admin-tabs">
-      <button class="admin-tab active" onclick="adminTab(this,'admDash')">📊 الرئيسية</button>
-      <button class="admin-tab" onclick="adminTab(this,'admAttend')">📋 الحضور</button>
-      <button class="admin-tab" onclick="adminTab(this,'admLeaves')">🏖️ الإجازات</button>
-      <button class="admin-tab" onclick="adminTab(this,'admUsers')">👥 المستخدمين</button>
-      <button class="admin-tab" onclick="adminTab(this,'admHeatmap')">🔥 خريطة الغياب</button>
-      <button class="admin-tab" onclick="adminTab(this,'admMonthly')">📑 التقرير الشهري</button>
-      <button class="admin-tab" onclick="adminTab(this,'admYearly')">📅 الملخص السنوي</button>
-      <button class="admin-tab" onclick="adminTab(this,'admAudit')">🔍 سجل التدقيق</button>
-      ${isSuperAdmin?`<button class="admin-tab" onclick="adminTab(this,'admSettings')">⚙️ الإعدادات</button>`:''}
+      ${tabs.map((t,i)=>`<button class="admin-tab ${i===0?'active':''}" onclick="adminTab(this,'${t.id}')">${t.label}</button>`).join('')}
     </div>
-    <div id="admDash"></div>
+    <div id="admDash" class="${tabs[0].id==='admDash'?'':'hidden'}"></div>
     <div id="admAttend" class="hidden"></div>
     <div id="admLeaves" class="hidden"></div>
     <div id="admUsers" class="hidden"></div>
@@ -1735,11 +1930,13 @@ async function renderSuperAdminPage(){
     <div id="admAudit" class="hidden"></div>
     <div id="admSettings" class="hidden"></div>
   `;
-  renderAdmDash();
+  window.adminTab(document.querySelector('.admin-tab'),tabs[0].id);
 }
 
 window.adminTab=function(btn,id){
-  document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));btn.classList.add('active');
+  const perm=ADMIN_TAB_PERMS[id];
+  if(perm&&!hasPerm(perm)){toast('ليس لديك صلاحية لفتح هذا التبويب','danger');return}
+  document.querySelectorAll('.admin-tab').forEach(t=>t.classList.remove('active'));if(btn)btn.classList.add('active');
   ['admDash','admAttend','admLeaves','admUsers','admHeatmap','admMonthly','admYearly','admAudit','admSettings'].forEach(x=>{
     const el=document.getElementById(x);if(el)el.classList.toggle('hidden',x!==id);
   });
@@ -1770,13 +1967,15 @@ async function renderAdmDash(){
       let status='absent';
       if(rec)status=rec.status;
       const isFlexible=m.schedule==='flexible';
-      const displayStatus=(isFlexible&&status==='late')?'present':status;
+      const isWeekendToday=isWeekendDow(new Date().getDay(),m.weekendDays);
+      const displayStatus=(isFlexible&&status==='late')?'present':(!rec&&isWeekendToday)?'weekend':status;
       if(displayStatus==='present')present++;
       else if(displayStatus==='checkedin')checkedIn++;
       else if(displayStatus==='leave')onLeave++;
       else if(displayStatus==='late'){late++;present++}
+      else if(displayStatus==='weekend'){/* rest day — not absent */}
       else absent++;
-      mgrStatus.push({...m,todayStatus:displayStatus,todayRec:rec});
+      mgrStatus.push({...m,todayStatus:displayStatus,todayRec:rec,isWeekendToday});
     }
     // Get pending leaves count
     const pendingSnap=await getDocs(query(collection(db,'leaves'),where('status','==','pending')));
@@ -1789,7 +1988,7 @@ async function renderAdmDash(){
     // Absence alert: managers with no check-in after 13:00
     const nowHour=new Date().getHours();
     if(nowHour>=13){
-      const absentNames=mgrStatus.filter(m=>!m.todayRec&&!m.disabled).map(m=>m.name);
+      const absentNames=mgrStatus.filter(m=>!m.todayRec&&!m.disabled&&!m.isWeekendToday).map(m=>m.name);
       if(absentNames.length>0)addNotification('⚠️ غياب محتمل',`${absentNames.length} مدير لم يسجل حضوره حتى الآن: ${absentNames.slice(0,3).join('، ')}${absentNames.length>3?` و${absentNames.length-3} آخرين`:''}`, 'danger');
     }
     // weekly attendance chart data
@@ -1805,7 +2004,8 @@ async function renderAdmDash(){
     const maxPct=Math.max(...weekStats.map(w=>w.present||1));
 
     // ── "اليوم" oversight widget data ──
-    const notCheckedIn=mgrStatus.filter(m=>!m.todayRec);
+    const onWeekend=mgrStatus.filter(m=>m.isWeekendToday&&!m.todayRec);
+    const notCheckedIn=mgrStatus.filter(m=>!m.todayRec&&!m.isWeekendToday);
     const currentlyIn=mgrStatus.filter(m=>m.todayStatus==='checkedin'||m.todayStatus==='present'||m.todayStatus==='late');
     const rangeAlerts=mgrStatus.filter(m=>{
       const r=m.todayRec;if(!r)return false;
@@ -1840,6 +2040,7 @@ async function renderAdmDash(){
               <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;background:var(--bg3);border-radius:var(--r);padding:6px 10px">
                 <span style="font-weight:600">${m.name}</span><span style="color:var(--text3)">${m.site||'—'}</span>
               </div>`).join('')}</div>`}
+          ${onWeekend.length?`<div style="font-size:11px;color:var(--text3);margin-top:10px">🏖️ راحة اليوم: ${onWeekend.map(m=>m.name).join('، ')}</div>`:''}
         </div>
         <div class="card" style="margin-bottom:0">
           <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--accent2)">🟢 الدوام جارٍ الآن (${currentlyIn.length})</div>
@@ -1899,7 +2100,7 @@ async function renderAdmDash(){
               <div class="avatar" style="background:${m.todayStatus==='present'||m.todayStatus==='late'?'linear-gradient(135deg,#16a34a,#15803d)':m.todayStatus==='checkedin'?'linear-gradient(135deg,#2563eb,#1d4ed8)':m.todayStatus==='leave'?'linear-gradient(135deg,#7c3aed,#6d28d9)':'linear-gradient(135deg,#94a3b8,#64748b)'}">${(m.name||'?')[0]}</div>
               <div><div class="mgr-name">${m.name}</div><div class="mgr-site">📍 ${m.site||'—'}</div></div>
             </div>
-            <div class="mgr-row"><span class="lbl">الحالة</span><span>${statusBadge(m.todayStatus)}</span></div>
+            <div class="mgr-row"><span class="lbl">الحالة</span><span>${m.todayRec&&isExtraWorkRecord(m.todayRec,m.weekendDays)?statusBadge('extra'):statusBadge(m.todayStatus)}</span></div>
             <div class="mgr-row"><span class="lbl">وقت الدخول</span><span style="color:var(--success);font-weight:600">${m.todayRec?.checkIn||'—'}</span></div>
             <div class="mgr-row"><span class="lbl">وقت الخروج</span><span style="color:var(--danger);font-weight:600">${m.todayRec?.checkOut||'—'}</span></div>
             ${(m.todayRec?.lateMinutes&&m.schedule!=='flexible')?`<div class="mgr-row"><span class="lbl">التأخير</span><span style="color:var(--warn);font-weight:600">${m.todayRec.lateMinutes} دقيقة</span></div>`:''}
@@ -1923,7 +2124,7 @@ async function renderAdmAttend(){
     for(const m of managers){
       for(const day of days.slice(0,14)){
         const snap=await getDoc(doc(db,`attendance/${m.id}/records/${day}`));
-        if(snap.exists())allRecords.push({managerName:m.name,site:m.site,uid:m.id,schedule:m.schedule,...snap.data()});
+        if(snap.exists())allRecords.push({managerName:m.name,site:m.site,uid:m.id,schedule:m.schedule,weekendDays:m.weekendDays,...snap.data()});
       }
     }
     allRecords.sort((a,b)=>b.date.localeCompare(a.date));
@@ -1936,7 +2137,7 @@ async function renderAdmAttend(){
           <option value="present">حاضر</option>
           <option value="late">متأخر</option>
           <option value="absent">غائب</option>
-          <option value="leave">إجازة</option>
+          <option value="extra">يوم إضافي</option>
         </select>
         <button class="btn-info" style="padding:8px 16px;font-size:13px" onclick="exportAttendanceCSV()">📊 تصدير Excel/CSV</button>
       </div>
@@ -1945,7 +2146,7 @@ async function renderAdmAttend(){
           <thead><tr><th>المدير</th><th>المشروع</th><th>التاريخ</th><th>دخول</th><th>خروج</th><th>ساعات</th><th>📍 نطاق الدخول 👆</th><th>🗺️</th><th>الحالة</th><th>ملاحظة</th></tr></thead>
           <tbody id="attTbody">
             ${allRecords.length===0?`<tr><td colspan="10" class="tbl-empty">لا توجد سجلات</td></tr>`
-            :allRecords.map((r,i)=>`<tr data-status="${r.status}" style="cursor:pointer" onclick="showLocModal(${i},'_attRecords')" title="اضغط لعرض الموقع التفصيلي">
+            :allRecords.map((r,i)=>`<tr data-status="${isExtraWorkRecord(r,r.weekendDays)?'extra':r.status}" style="cursor:pointer" onclick="showLocModal(${i},'_attRecords')" title="اضغط لعرض الموقع التفصيلي">
               <td style="font-weight:600">${r.managerName||'—'}</td>
               <td style="font-size:12px;color:var(--text2)">${r.site||'—'}</td>
               <td>${r.date}</td>
@@ -1954,7 +2155,7 @@ async function renderAdmAttend(){
               <td>${fmtWorkHours(r.workHours)}</td>
               <td style="font-size:11px">${r.checkIn?(r.outsideWorkRange?`<span style="color:var(--warn);font-weight:600">⚠️ خارج النطاق${r.workDistance!=null?` (${r.workDistance}م)`:''}</span>`:`<span style="color:var(--success);font-weight:600">✅ داخل النطاق</span>`):'—'}</td>
               <td onclick="event.stopPropagation()">${r.inLat&&r.inLng?`<img src="https://staticmap.openstreetmap.de/staticmap.php?center=${r.inLat},${r.inLng}&zoom=15&size=60x60&maptype=mapnik&markers=${r.inLat},${r.inLng},red-pushpin" width="44" height="44" style="border-radius:6px;border:1px solid var(--border);cursor:pointer;object-fit:cover" loading="lazy" onclick="showLocModal(${i},'_attRecords')" title="اضغط لعرض الموقع كاملاً" onerror="this.style.display='none'"/>`:'—'}</td>
-              <td>${statusBadge(r.schedule==='flexible'&&r.status==='late'?'present':r.status)}${(r.spotChecks||[]).some(sc=>sc.outsideRange)?'<div style="margin-top:3px"><span style="font-size:10px;color:var(--warn);font-weight:600" title="تم رصد خروج عن النطاق أثناء الدوام">📍⚠️ تحقق عشوائي</span></div>':''}</td>
+              <td>${attendanceStatusBadge(r,r.schedule,r.weekendDays)}${(r.spotChecks||[]).some(sc=>sc.outsideRange)?'<div style="margin-top:3px"><span style="font-size:10px;color:var(--warn);font-weight:600" title="تم رصد خروج عن النطاق أثناء الدوام">📍⚠️ تحقق عشوائي</span></div>':''}</td>
               <td onclick="event.stopPropagation()">
                 ${r.adminNote?`<span title="${r.adminNote}" style="font-size:11px;color:var(--accent);cursor:pointer" onclick="showAddNoteModal('${r.date+r.managerName}','${r.uid||''}','${r.managerName||''}','${r.date}')">📝 ${r.adminNote.substring(0,15)}${r.adminNote.length>15?'...':''}</span>`
                 :`<button class="btn-ghost" style="padding:3px 8px;font-size:11px" onclick="showAddNoteModal('${r.date+r.managerName}','${r.uid||''}','${r.managerName||''}','${r.date}')">+ ملاحظة</button>`}
@@ -1996,7 +2197,7 @@ window.filterUsersTable=function(){
   const status=document.getElementById('userStatusFilter')?.value||'';
   const schedule=document.getElementById('userScheduleFilter')?.value||'';
   document.querySelectorAll('#mgrsTbody tr[data-name]').forEach(row=>{
-    const nameMatch=!q||(row.dataset.name||'').includes(q)||(row.dataset.site||'').includes(q)||(row.dataset.email||'').includes(q);
+    const nameMatch=!q||(row.dataset.name||'').includes(q)||(row.dataset.site||'').includes(q)||(row.dataset.email||'').includes(q)||(row.dataset.job||'').includes(q);
     const statusMatch=!status||row.dataset.status===status;
     const scheduleMatch=!schedule||row.dataset.schedule===schedule;
     row.style.display=(nameMatch&&statusMatch&&scheduleMatch)?'':'none';
@@ -2187,13 +2388,13 @@ async function renderAdmLeaves(){
             ${l.adminNote?`<div style="font-size:12px;color:var(--text2);margin-top:6px;background:var(--bg3);padding:6px 10px;border-radius:6px">💬 ملاحظتك: ${l.adminNote}</div>`:''}
             ${l.status!=='pending'&&l.decidedBy?`<div style="font-size:12px;margin-top:6px;padding:6px 10px;border-radius:6px;background:${l.status==='approved'?'var(--success-bg)':'var(--danger-bg)'};color:${l.status==='approved'?'var(--success)':'var(--danger)'}">
               ${l.status==='approved'?'✅':'❌'} ${l.status==='approved'?'وافق':'رفض'}: <b>${l.decidedBy}</b>${l.decidedAt?` — ${new Date(l.decidedAt.seconds*1000).toLocaleDateString('ar-EG')}`:''}</div>`:''}
-            ${l.status==='pending'?`
+            ${l.status==='pending'&&hasPerm('leaves')?`
               <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
                 <button class="btn-success" style="padding:7px 16px;font-size:13px" onclick="decideLeave('${l.id}','approved')">✅ موافقة</button>
                 <button class="btn-danger" style="padding:7px 16px;font-size:13px" onclick="decideLeave('${l.id}','rejected')">❌ رفض</button>
                 <button class="btn-ghost" style="padding:7px 16px;font-size:13px" onclick="decideLeaveWithNote('${l.id}')">💬 موافقة مع ملاحظة</button>
               </div>`:''}
-            ${currentProfile.role==='superadmin'?`<div style="display:flex;gap:8px;margin-top:10px"><button class="btn-danger" style="padding:6px 14px;font-size:12px" onclick="deleteLeaveAndRestore('${l.id}')">🗑️ حذف الطلب${l.status==='approved'?' واسترجاع الرصيد':''}</button></div>`:''}
+            ${hasPerm('leavesDelete')?`<div style="display:flex;gap:8px;margin-top:10px"><button class="btn-danger" style="padding:6px 14px;font-size:12px" onclick="deleteLeaveAndRestore('${l.id}')">🗑️ حذف الطلب${l.status==='approved'?' واسترجاع الرصيد':''}</button></div>`:''}
           </div>`).join('')}
       </div>
     `;
@@ -2247,7 +2448,7 @@ async function restoreLeaveBalanceForDeletedLeave(leaveId){
 }
 
 window.deleteLeaveAndRestore=async function(id){
-  if(currentProfile.role!=='superadmin'){toast('هذه الصلاحية للسوبر أدمن فقط','danger');return}
+  if(!requirePerm('leavesDelete','هذه الصلاحية غير متاحة لحسابك'))return
   if(!confirm('هل تريد حذف طلب الإجازة؟ إذا كانت موافق عليها سيتم إرجاع أيامها للرصيد.'))return;
   try{
     const leaveSnapForDelete=await getDoc(doc(db,'leaves',id));
@@ -2310,6 +2511,7 @@ window.updateBulkLeaveCount=function(){
   if(lbl)lbl.textContent=`${n} محدد`;
 };
 window.bulkDecideLeaves=async function(decision){
+  if(!requirePerm('leaves'))return;
   const ids=[...document.querySelectorAll('.leaveBulkChk:checked')].map(c=>c.dataset.leaveId);
   if(ids.length===0){toast('من فضلك حدد طلبات أولاً','warn');return}
   if(!confirm(`هل أنت متأكد من ${decision==='approved'?'الموافقة على':'رفض'} ${ids.length} طلب؟`))return;
@@ -2321,6 +2523,7 @@ window.bulkDecideLeaves=async function(decision){
   renderAdmLeaves();
 };
 window.decideLeave=async function(id,decision,silent){
+  if(!requirePerm('leaves'))return;
   try{
     const leaveSnapBefore=await getDoc(doc(db,'leaves',id));
     const oldStatus=leaveSnapBefore.exists()?leaveSnapBefore.data().status:null;
@@ -2342,6 +2545,7 @@ window.decideLeave=async function(id,decision,silent){
   }catch(e){toast('خطأ: '+e.message,'danger')}
 };
 window.decideLeaveWithNote=function(id){
+  if(!requirePerm('leaves'))return;
   openModal(`
     <h2>💬 موافقة مع ملاحظة</h2>
     <div class="form-row-1"><label class="field-label">الملاحظة للمدير</label><textarea id="adminNoteInput" rows="3" placeholder="اكتب ملاحظتك هنا..."></textarea></div>
@@ -2352,6 +2556,7 @@ window.decideLeaveWithNote=function(id){
   `);
 };
 window.decideLeaveNoteSubmit=async function(id){
+  if(!requirePerm('leaves'))return;
   const note=document.getElementById('adminNoteInput').value.trim();
   try{
     const leaveSnapBefore=await getDoc(doc(db,'leaves',id));
@@ -2377,11 +2582,10 @@ async function renderAdmUsers(){
     const users=snap.docs.map(d=>({id:d.id,...d.data()}));
     const managers=users.filter(u=>u.role==='manager');
     const admins=users.filter(u=>u.role==='admin'||u.role==='superadmin');
-    const isSuperAdmin=currentProfile.role==='superadmin';
     el.innerHTML=`
       <div class="page-header"><div class="page-title">👥 إدارة المستخدمين والصلاحيات</div></div>
       <div class="search-bar" style="margin-bottom:12px">
-        <input type="text" id="userSearchInput" placeholder="🔍 بحث بالاسم أو المشروع أو البريد..." oninput="filterUsersTable()" style="max-width:320px"/>
+        <input type="text" id="userSearchInput" placeholder="🔍 بحث بالاسم أو الوظيفة أو المشروع أو البريد..." oninput="filterUsersTable()" style="max-width:320px"/>
         <select id="userStatusFilter" style="width:auto" onchange="filterUsersTable()">
           <option value="">كل الحالات</option>
           <option value="active">نشط</option>
@@ -2396,10 +2600,10 @@ async function renderAdmUsers(){
         </select>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
-        <button class="btn-primary" onclick="showAddUserModal('manager')">➕ إضافة مدير مشروع</button>
-        ${isSuperAdmin?`<button class="btn-ghost" onclick="showAddUserModal('admin')">🔑 إضافة أدمن قسم</button>`:''}
-        ${isSuperAdmin?`<button class="btn-ghost" style="border-color:#7c3aed;color:#7c3aed" onclick="showAddUserModal('superadmin')">⭐ إضافة سوبر أدمن</button>`:''}
-        <button class="btn-info" style="color:#fff;padding:8px 16px;font-size:13px" onclick="showImportUsersModal()">📤 استيراد من Excel/CSV</button>
+        ${hasPerm('usersManage')?`<button class="btn-primary" onclick="showAddUserModal('manager')">➕ إضافة مدير</button>`:''}
+        ${hasPerm('usersAdmin')?`<button class="btn-ghost" onclick="showAddUserModal('admin')">🔑 إضافة أدمن قسم</button>`:''}
+        ${hasPerm('usersAdmin')?`<button class="btn-ghost" style="border-color:#7c3aed;color:#7c3aed" onclick="showAddUserModal('superadmin')">⭐ إضافة سوبر أدمن</button>`:''}
+        ${hasPerm('usersManage')?`<button class="btn-info" style="color:#fff;padding:8px 16px;font-size:13px" onclick="showImportUsersModal()">📤 استيراد من Excel/CSV</button>`:''}
       </div>
       <div class="section-title">🏗️ هيكل الصلاحيات</div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:20px;padding:12px;background:var(--bg3);border-radius:var(--r2);font-size:13px">
@@ -2408,30 +2612,33 @@ async function renderAdmUsers(){
         <span class="badge badge-info">أدمن قسم</span>
         <span style="color:var(--text3)">←</span>
         <span class="badge badge-gray">مدير مشروع</span>
-        <span style="color:var(--text2);margin-right:8px;font-size:12px">| كل مستوى يرى المستوى الأدنى فقط</span>
+        <span style="color:var(--text2);margin-right:8px;font-size:12px">| صلاحيات كل أدمن تُحدد لحسابه بشكل مستقل</span>
       </div>
       <div class="section-title">👷 مديرو المشاريع (<span id="mgrsCount">${managers.length}</span>)</div>
       <div class="tbl-wrap" style="margin-bottom:20px">
         <table>
-          <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>البريد</th><th>موقع المشروع</th><th>الجدول</th><th>آخر جهاز دخول</th><th>الحالة</th><th>الإجراءات</th></tr></thead>
+          <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الوظيفة</th><th>البريد</th><th>موقع المشروع</th><th>الجدول</th><th>آخر جهاز دخول</th><th>الحالة</th><th>الإجراءات</th></tr></thead>
           <tbody id="mgrsTbody">
-            ${managers.length===0?'<tr><td colspan="8" class="tbl-empty">لا يوجد مديرون</td></tr>'
-            :managers.map(m=>`<tr data-name="${(m.name||'').toLowerCase()}" data-site="${(m.site||'').toLowerCase()}" data-email="${(m.email||'').toLowerCase()}" data-status="${m.disabled?'disabled':'active'}" data-schedule="${m.schedule||''}">
+            ${managers.length===0?'<tr><td colspan="9" class="tbl-empty">لا يوجد مديرون</td></tr>'
+            :managers.map(m=>`<tr data-name="${(m.name||'').toLowerCase()}" data-site="${(m.site||'').toLowerCase()}" data-email="${(m.email||'').toLowerCase()}" data-job="${(m.jobTitle||'').toLowerCase()}" data-status="${m.disabled?'disabled':'active'}" data-schedule="${m.schedule||''}">
               <td style="font-weight:600">${m.name}</td>
               <td style="font-family:monospace;font-size:12px;color:var(--text2)">${m.username||'—'}</td>
+              <td style="font-size:12px">${m.jobTitle||'—'}</td>
               <td style="font-size:12px">${m.email||'—'}</td>
               <td style="font-size:12px">${m.site||'—'}</td>
-              <td>${m.schedule?`<span class="badge shift-${m.schedule}">${{morning:'صباحي',evening:'مسائي',flexible:'مرن'}[m.schedule]||m.schedule}</span>`:'—'}</td>
+              <td>${m.schedule?`<span class="badge shift-${m.schedule}">${{morning:'صباحي',evening:'مسائي',flexible:'مرن'}[m.schedule]||m.schedule}</span>`:'—'}
+                <div style="font-size:10px;color:var(--text3);margin-top:4px">🏖️ ${weekendDaysLabel(m.weekendDays)}</div>
+              </td>
               <td style="font-size:11px">
                 ${m.lastDeviceLabel?`<div>📱 ${m.lastDeviceLabel}</div>`:'<span style="color:var(--text3)">—</span>'}
-                ${isSuperAdmin&&m.lastDeviceId?`<button class="btn-ghost" style="padding:2px 8px;font-size:10px;margin-top:4px" onclick="resetManagerDevice('${m.id}','${m.name}')" title="السماح بربط جهاز جديد كأساس بدون تنبيه">🔁 إعادة ضبط الجهاز</button>`:''}
+                ${hasPerm('usersManage')&&m.lastDeviceId?`<button class="btn-ghost" style="padding:2px 8px;font-size:10px;margin-top:4px" onclick="resetManagerDevice('${m.id}','${m.name}')" title="السماح بربط جهاز جديد كأساس بدون تنبيه">🔁 إعادة ضبط الجهاز</button>`:''}
               </td>
               <td><span class="badge ${m.disabled?'badge-danger':'badge-success'}">${m.disabled?'موقوف':'نشط'}</span></td>
               <td style="display:flex;gap:4px;flex-wrap:wrap">
                 <button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showViewUserModal('${m.id}')">👁️</button>
-                <button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showEditUserModal('${m.id}')">✏️</button>
-                ${isSuperAdmin?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="toggleUserStatus('${m.id}','${m.name}',${!!m.disabled})">${m.disabled?'✅ تفعيل':'⏸️ إيقاف'}</button>`:''}
-                ${isSuperAdmin?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px;color:var(--danger);border-color:var(--danger)" onclick="confirmDeleteUser('${m.id}','${m.name}')">🗑️</button>`:''}
+                ${hasPerm('usersManage')?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showEditUserModal('${m.id}')">✏️</button>`:''}
+                ${hasPerm('usersDelete')?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="toggleUserStatus('${m.id}','${m.name}',${!!m.disabled})">${m.disabled?'✅ تفعيل':'⏸️ إيقاف'}</button>`:''}
+                ${hasPerm('usersDelete')?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px;color:var(--danger);border-color:var(--danger)" onclick="confirmDeleteUser('${m.id}','${m.name}')">🗑️</button>`:''}
               </td>
             </tr>`).join('')}
           </tbody>
@@ -2440,14 +2647,19 @@ async function renderAdmUsers(){
       <div class="section-title">🔑 الأدمنز (${admins.length})</div>
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>البريد</th><th>الصلاحية</th><th>الحالة</th></tr></thead>
+          <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>البريد</th><th>الدور</th><th>الصلاحيات</th><th>الحالة</th>${hasPerm('usersAdmin')?'<th>الإجراءات</th>':''}</tr></thead>
           <tbody>
             ${admins.map(a=>`<tr>
               <td style="font-weight:600">${a.name}</td>
               <td style="font-family:monospace;font-size:12px;color:var(--text2)">${a.username||'—'}</td>
               <td style="font-size:12px">${a.email||'—'}</td>
               <td><span class="badge ${a.role==='superadmin'?'badge-purple':'badge-info'}">${a.role==='superadmin'?'سوبر أدمن':'أدمن قسم'}</span></td>
+              <td style="font-size:11px;color:var(--text2);max-width:240px">${permissionsLabel(a)}</td>
               <td><span class="badge ${a.disabled?'badge-danger':'badge-success'}">${a.disabled?'موقوف':'نشط'}</span></td>
+              ${hasPerm('usersAdmin')?`<td style="display:flex;gap:4px;flex-wrap:wrap">
+                <button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showEditAdminModal('${a.id}')">🔐 صلاحيات</button>
+                ${hasPerm('usersDelete')&&a.id!==currentUser.uid?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="toggleUserStatus('${a.id}','${a.name}',${!!a.disabled})">${a.disabled?'✅ تفعيل':'⏸️ إيقاف'}</button>`:''}
+              </td>`:''}
             </tr>`).join('')}
           </tbody>
         </table>
@@ -2488,6 +2700,10 @@ window.showViewUserModal=async function(uid){
         <div style="font-weight:600;font-size:12px">${u.email||'—'}</div>
       </div>
       <div style="background:var(--bg3);border-radius:var(--r);padding:12px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">الوظيفة</div>
+        <div style="font-weight:600">${u.jobTitle||'—'}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:var(--r);padding:12px">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px">موقع المشروع</div>
         <div style="font-weight:600">📍 ${u.site||'—'}</div>
       </div>
@@ -2498,6 +2714,7 @@ window.showViewUserModal=async function(uid){
       <div style="background:var(--accent-light);border-radius:var(--r);padding:12px;grid-column:1/-1">
         <div style="font-size:11px;color:var(--text3);margin-bottom:4px">نوع الدوام</div>
         <div style="font-weight:600">${scheduleLabel[u.schedule]||u.schedule||'—'}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:6px">🏖️ نهاية الأسبوع: ${weekendDaysLabel(u.weekendDays)}</div>
       </div>
     </div>
     <div style="font-size:13px;font-weight:700;margin-bottom:10px">🏖️ رصيد الإجازات</div>
@@ -2545,6 +2762,7 @@ window.showViewUserModal=async function(uid){
 };
 
 window.toggleUserStatus=async function(uid,name,currentlyDisabled){
+  if(!requirePerm('usersDelete'))return;
   const action=currentlyDisabled?'تفعيل':'إيقاف';
   if(!confirm(`هل تريد ${action} حساب ${name}؟`))return;
   try{
@@ -2555,6 +2773,7 @@ window.toggleUserStatus=async function(uid,name,currentlyDisabled){
 };
 
 window.resetManagerDevice=async function(uid,name){
+  if(!requirePerm('usersManage'))return;
   if(!confirm(`هل تريد إعادة ضبط الجهاز المسجّل لـ ${name}؟\nسيتم اعتبار أول جهاز يسجّل دخول بعد ذلك هو الجهاز المعتمد بدون تنبيه.`))return;
   try{
     await updateDoc(doc(db,'users',uid),{lastDeviceId:null,lastDeviceLabel:null,deviceResetAt:serverTimestamp(),deviceResetBy:currentProfile.name});
@@ -2566,7 +2785,9 @@ window.resetManagerDevice=async function(uid,name){
 window.showAddUserModal=function(role){
   const isManager=role==='manager';
   const isSA=role==='superadmin';
-  const title=isManager?'➕ إضافة مدير مشروع':isSA?'⭐ إضافة سوبر أدمن':'🔑 إضافة أدمن جديد';
+  if(isManager&&!requirePerm('usersManage'))return;
+  if(!isManager&&!requirePerm('usersAdmin'))return;
+  const title=isManager?'➕ إضافة مدير':isSA?'⭐ إضافة سوبر أدمن':'🔑 إضافة أدمن جديد';
   openModal(`
     <h2>${title}</h2>
     <div class="form-row">
@@ -2574,7 +2795,10 @@ window.showAddUserModal=function(role){
       <div><label class="field-label">اسم المستخدم</label><input type="text" id="mUser" placeholder="username" style="direction:ltr"/></div>
     </div>
     <div class="form-row">
+      <div><label class="field-label">الوظيفة</label><input type="text" id="mJobTitle" placeholder="مثال: مدير موقع"/></div>
       <div><label class="field-label">البريد الإلكتروني</label><input type="email" id="mEmail" placeholder="example@email.com" style="direction:ltr"/></div>
+    </div>
+    <div class="form-row">
       <div><label class="field-label">كلمة المرور</label><input type="password" id="mPass" placeholder="8 أحرف على الأقل" style="direction:ltr"/></div>
     </div>
     ${isManager?`
@@ -2589,6 +2813,7 @@ window.showAddUserModal=function(role){
         </select>
       </div>
     </div>
+    ${weekendDaysPickerHtml('m',[5])}
     <div id="mCustomHours" style="display:none">
       <div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px">🕐 تحديد مواعيد العمل</div>
       <div class="form-row">
@@ -2614,13 +2839,61 @@ window.showAddUserModal=function(role){
       <div><label class="field-label">نطاق السماح بالمتر</label><input type="number" id="mRadius" value="300" min="50" step="10" style="direction:ltr"/></div>
       <div style="display:flex;align-items:end"><button type="button" class="btn-ghost" style="width:100%" onclick="fillWorkLocationFromGPS('m')">📌 استخدام موقعي الحالي</button></div>
     </div>
-    <div class="notice notice-info" style="font-size:12px;margin-top:-6px">لو المدير بصم خارج النطاق سيتم تسجيل البصمة مع ملاحظة: خارج نطاق العمل، ولن يتم منعه من التسجيل.</div>`:isSA?`<div class="notice notice-warn" style="margin-bottom:12px">⚠️ السوبر أدمن لديه صلاحيات كاملة على النظام</div>`:''}
+    <div class="notice notice-info" style="font-size:12px;margin-top:-6px">لو المدير بصم خارج النطاق سيتم تسجيل البصمة مع ملاحظة: خارج نطاق العمل، ولن يتم منعه من التسجيل.</div>`:`
+    ${permissionsPickerHtml('m',role,defaultPermissions(role))}
+    <div class="notice notice-info" style="font-size:12px;margin-bottom:12px">حدد الشاشات والإجراءات المسموحة لهذا الحساب فقط.</div>`}
     <div id="modalErr" style="margin-bottom:8px"></div>
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeModal()">إلغاء</button>
       <button class="btn-primary" id="saveUserBtn" onclick="saveNewUser('${role}')">💾 حفظ</button>
     </div>
   `);
+};
+
+window.showEditAdminModal=async function(uid){
+  if(!requirePerm('usersAdmin'))return;
+  const snap=await getDoc(doc(db,'users',uid));if(!snap.exists())return;
+  const u=snap.data();
+  if(u.role!=='admin'&&u.role!=='superadmin'){toast('هذا المستخدم ليس أدمن','warn');return}
+  openModal(`
+    <h2>🔐 صلاحيات: ${u.name||''}</h2>
+    <div class="form-row">
+      <div><label class="field-label">الاسم الكامل</label><input type="text" id="aName" value="${u.name||''}"/></div>
+      <div><label class="field-label">الوظيفة</label><input type="text" id="aJobTitle" value="${u.jobTitle||''}"/></div>
+    </div>
+    <div class="form-row">
+      <div><label class="field-label">الدور</label>
+        <select id="aRole">
+          <option value="admin" ${u.role==='admin'?'selected':''}>أدمن قسم</option>
+          <option value="superadmin" ${u.role==='superadmin'?'selected':''}>سوبر أدمن</option>
+        </select>
+      </div>
+    </div>
+    ${permissionsPickerHtml('a',u.role,u.permissions)}
+    <div id="modalErr" style="margin-bottom:8px"></div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn-primary" onclick="updateAdminPermissions('${uid}')">💾 حفظ الصلاحيات</button>
+    </div>
+  `);
+};
+window.updateAdminPermissions=async function(uid){
+  if(!requirePerm('usersAdmin'))return;
+  const name=document.getElementById('aName')?.value.trim()||'';
+  const jobTitle=document.getElementById('aJobTitle')?.value.trim()||'';
+  const role=document.getElementById('aRole')?.value||'admin';
+  const permissions=readPermissions('a',role);
+  if(!name){toast('يرجى إدخال الاسم','warn');return}
+  try{
+    const upd={name,jobTitle,role,permissions,updatedAt:serverTimestamp(),updatedBy:currentProfile.name};
+    await updateDoc(doc(db,'users',uid),upd);
+    if(currentProfile&&currentUser&&uid===currentUser.uid){
+      currentProfile={...currentProfile,...upd};
+      renderSuperAdminPage();
+    }
+    await writeAudit('user_permissions_updated',{uid,name,role,permissions});
+    closeModal();toast('تم حفظ صلاحيات المستخدم','success');renderAdmUsers();
+  }catch(e){toast('خطأ: '+e.message,'danger')}
 };
 
 window.fillWorkLocationFromGPS=function(prefix){
@@ -2639,10 +2912,13 @@ window.toggleCustomHours=function(prefix){
 };
 
 window.saveNewUser=async function(role){
+  if(role==='manager'&&!requirePerm('usersManage'))return;
+  if((role==='admin'||role==='superadmin')&&!requirePerm('usersAdmin'))return;
   const name=document.getElementById('mName').value.trim();
   const username=document.getElementById('mUser').value.trim().toLowerCase();
   const email=document.getElementById('mEmail').value.trim().toLowerCase();
   const pass=document.getElementById('mPass').value.trim();
+  const jobTitle=document.getElementById('mJobTitle')?.value.trim()||'';
   const site=role==='manager'?(document.getElementById('mSite')?.value.trim()||'—'):'المقر الرئيسي';
   const schedule=document.getElementById('mSchedule')?.value||'morning';
   const errEl=document.getElementById('modalErr');
@@ -2666,7 +2942,9 @@ window.saveNewUser=async function(role){
     }:null;
     const customStart=schedule==='custom'?(document.getElementById('mStartTime')?.value||'09:00'):null;
     const customEnd  =schedule==='custom'?(document.getElementById('mEndTime')?.value||'17:00'):null;
-    const userData={name,username,email,role,site,schedule,workLat:lat,workLng:lng,workRadius:radius,disabled:false,createdAt:serverTimestamp(),createdBy:currentProfile.name};
+    const weekendDays=role==='manager'?readWeekendDays('m'):DEFAULT_WEEKEND_DAYS.slice();
+    const userData={name,username,email,jobTitle,role,site,schedule,weekendDays,workLat:lat,workLng:lng,workRadius:radius,disabled:false,createdAt:serverTimestamp(),createdBy:currentProfile.name};
+    if(role==='admin'||role==='superadmin')userData.permissions=readPermissions('m',role);
     if(leaveBalance)userData.leaveBalance=leaveBalance;
     if(customStart)userData.customStartTime=customStart;
     if(customEnd)userData.customEndTime=customEnd;
@@ -2684,13 +2962,17 @@ window.saveNewUser=async function(role){
 };
 
 window.showEditUserModal=async function(uid){
+  if(!requirePerm('usersManage'))return;
   const snap=await getDoc(doc(db,'users',uid));if(!snap.exists())return;
   const u=snap.data();
   const lb=u.leaveBalance||{annual:21,sick:14,emergency:7,unpaid:30};
   openModal(`
     <h2>✏️ تعديل: ${u.name}</h2>
     <div class="form-row">
-      <div><label class="field-label">الاسم الكامل</label><input type="text" id="eName" value="${u.name}"/></div>
+      <div><label class="field-label">الاسم الكامل</label><input type="text" id="eName" value="${u.name||''}"/></div>
+      <div><label class="field-label">الوظيفة</label><input type="text" id="eJobTitle" value="${u.jobTitle||''}" placeholder="مثال: مدير موقع"/></div>
+    </div>
+    <div class="form-row">
       <div><label class="field-label">موقع المشروع</label><input type="text" id="eSite" value="${u.site||''}"/></div>
     </div>
     <div class="form-row">
@@ -2703,6 +2985,7 @@ window.showEditUserModal=async function(uid){
         </select>
       </div>
     </div>
+    ${weekendDaysPickerHtml('e',u.weekendDays)}
     <div id="eCustomHours" style="display:${u.schedule==='custom'?'block':'none'}">
       <div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px">🕐 تحديد مواعيد العمل</div>
       <div class="form-row">
@@ -2736,7 +3019,9 @@ window.showEditUserModal=async function(uid){
 };
 
 window.updateUserProfile=async function(uid){
+  if(!requirePerm('usersManage'))return;
   const name=document.getElementById('eName').value.trim();
+  const jobTitle=document.getElementById('eJobTitle')?.value.trim()||'';
   const site=document.getElementById('eSite').value.trim();
   const schedule=document.getElementById('eSchedule').value;
   const lat=parseFloat(document.getElementById('eLat').value)||null;
@@ -2750,17 +3035,20 @@ window.updateUserProfile=async function(uid){
   };
   const customStart=schedule==='custom'?(document.getElementById('eStartTime')?.value||'09:00'):null;
   const customEnd  =schedule==='custom'?(document.getElementById('eEndTime')?.value||'17:00'):null;
+  const weekendDays=readWeekendDays('e');
   try{
-    const upd={name,site,schedule,workLat:lat,workLng:lng,workRadius:radius,leaveBalance,updatedAt:serverTimestamp(),updatedBy:currentProfile.name};
+    const upd={name,jobTitle,site,schedule,weekendDays,workLat:lat,workLng:lng,workRadius:radius,leaveBalance,updatedAt:serverTimestamp(),updatedBy:currentProfile.name};
     if(customStart)upd.customStartTime=customStart;
     if(customEnd)upd.customEndTime=customEnd;
     await updateDoc(doc(db,'users',uid),upd);
+    if(currentProfile&&currentUser&&uid===currentUser.uid)currentProfile={...currentProfile,...upd};
     await writeAudit('user_updated',{uid,name,site});
     closeModal();toast('تم تحديث البيانات بنجاح','success');renderAdmUsers();
   }catch(e){toast('خطأ: '+e.message,'danger')}
 };
 
 window.confirmDeleteUser=function(uid,name){
+  if(!requirePerm('usersDelete'))return;
   openModal(`
     <h2 style="color:var(--danger)">🗑️ حذف نهائي للمستخدم</h2>
     <div class="notice notice-danger" style="margin-bottom:16px">⚠️ تحذير: هذا الإجراء لا يمكن التراجع عنه! سيتم حذف المستخدم وجميع بياناته نهائياً من النظام.</div>
@@ -2777,6 +3065,7 @@ window.confirmDeleteUser=function(uid,name){
   `);
 };
 window.permanentDeleteUser=async function(uid,name){
+  if(!requirePerm('usersDelete'))return;
   try{
     // Delete attendance records subcollection
     try{
@@ -2803,12 +3092,13 @@ window.deleteUserProfile=window.permanentDeleteUser;
 
 /* ── IMPORT USERS ── */
 window.showImportUsersModal=function(){
+  if(!requirePerm('usersManage'))return;
   openModal(`
     <h2>📤 استيراد مستخدمين من CSV</h2>
-    <div class="notice notice-info">ℹ️ يجب أن يحتوي ملف CSV على الأعمدة: name, username, email, password, site, schedule</div>
+    <div class="notice notice-info">ℹ️ يجب أن يحتوي ملف CSV على الأعمدة: name, username, email, password, jobTitle, site, schedule, weekendDays</div>
     <div class="form-row-1">
       <label class="field-label">الصق محتوى CSV هنا</label>
-      <textarea id="csvInput" rows="6" placeholder="name,username,email,password,site,schedule&#10;أحمد محمد,ahmed,ahmed@example.com,pass123,مشروع القاهرة,morning"></textarea>
+      <textarea id="csvInput" rows="6" placeholder="name,username,email,password,jobTitle,site,schedule,weekendDays&#10;أحمد محمد,ahmed,ahmed@example.com,pass123,مدير موقع,مشروع القاهرة,morning,الجمعة|السبت"></textarea>
     </div>
     <div id="importPreview" style="margin-top:10px"></div>
     <div class="modal-footer">
@@ -2819,6 +3109,7 @@ window.showImportUsersModal=function(){
 };
 
 window.processCSVImport=async function(){
+  if(!requirePerm('usersManage'))return;
   const csv=document.getElementById('csvInput').value.trim();
   if(!csv){toast('يرجى لصق بيانات CSV','warn');return}
   const lines=csv.split('\n').filter(l=>l.trim());
@@ -2834,8 +3125,8 @@ window.processCSVImport=async function(){
       if(!r.name||!r.username||!r.email||!r.password)continue;
       const cred=await createUserWithEmailAndPassword(auth,r.email,r.password);
       await setDoc(doc(db,'users',cred.user.uid),{
-        name:r.name,username:r.username.toLowerCase(),email:r.email,role:'manager',
-        site:r.site||'—',schedule:r.schedule||'morning',disabled:false,
+        name:r.name,username:r.username.toLowerCase(),email:r.email,jobTitle:r.jobtitle||r.job||'',role:'manager',
+        site:r.site||'—',schedule:r.schedule||'morning',weekendDays:parseWeekendDaysCsv(r.weekenddays||r.weekend),disabled:false,
         createdAt:serverTimestamp(),createdBy:currentProfile.name
       });
       success++;
@@ -2890,9 +3181,11 @@ async function renderHeatmap(){
               ${days.map(day=>{
                 const status=data[m.id][day]||'absent';
                 const isFuture=day>today;
+                const isWeekend=isWeekendDateStr(day,m.weekendDays);
                 const statusEff=(m.schedule==='flexible'&&status==='late')?'present':status;
-                const colorClass=isFuture?'hm-0':statusEff==='present'||statusEff==='checkedin'?'hm-present':statusEff==='late'?'hm-late':statusEff==='leave'?'hm-leave':statusEff==='absent'?'hm-absent':'hm-0';
-                return`<div class="hm-cell ${colorClass}" title="${m.name}: ${day} - ${statusEff}"></div>`;
+                const isExtra=isWeekend&&statusEff!=='absent';
+                const colorClass=isFuture||(isWeekend&&statusEff==='absent')?'hm-0':isExtra?'hm-leave':statusEff==='present'||statusEff==='checkedin'?'hm-present':statusEff==='late'?'hm-late':statusEff==='leave'?'hm-leave':statusEff==='absent'?'hm-absent':'hm-0';
+                return`<div class="hm-cell ${colorClass}" title="${m.name}: ${day} - ${isWeekend&&statusEff==='absent'?'نهاية أسبوع':isExtra?'يوم إضافي':statusEff}"></div>`;
               }).join('')}
             </div>`).join('')}
         </div>
@@ -3039,7 +3332,7 @@ function renderMonthlyReportHtml(details){
   function totalMinutes(attendance){
     return attendance.reduce((s,r)=>{const wh=String(r.workHours||'0');if(wh.includes(':')){const [h,mm]=wh.split(':').map(Number);return s+(h||0)*60+(mm||0)}return s+(parseFloat(wh)||0)*60},0);
   }
-  function lateCountFn(d){const isF=d.manager.schedule==='flexible';return isF?0:d.attendance.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length}
+  function lateCountFn(d){const isF=d.manager.schedule==='flexible';return isF?0:splitAttendanceByWeekend(d.attendance,d.manager.weekendDays).regular.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length}
 
   // working days elapsed in the month (up to today if current month, else full month)
   const [yy,mm]=month.split('-').map(Number);
@@ -3047,23 +3340,22 @@ function renderMonthlyReportHtml(details){
   const isCurrentMonth=(now.getFullYear()===yy&&now.getMonth()+1===mm);
   const lastDay=new Date(yy,mm,0).getDate();
   const dayLimit=isCurrentMonth?now.getDate():lastDay;
-  let workingDaysSoFar=0;
-  for(let d=1;d<=dayLimit;d++){
-    const dow=new Date(yy,mm-1,d).getDay(); // Friday(5) considered weekend
-    if(dow!==5)workingDaysSoFar++;
-  }
 
   const summaryData=details.map(d=>{
-    const present=d.attendance.length;
+    const split=splitAttendanceByWeekend(d.attendance,d.manager.weekendDays);
+    const present=split.regular.length;
+    const extraDays=split.extra.length;
     const late=lateCountFn(d);
     const leaveDays=d.leaveDayRows.length;
     const permissionDays=d.permissionDayRows.length;
+    const workingDaysSoFar=countWorkingDaysElapsed(yy,mm,dayLimit,d.manager.weekendDays);
     const absent=Math.max(0,workingDaysSoFar-present-leaveDays);
     const hrs=`${(totalMinutes(d.attendance)/60).toFixed(1)}h`;
-    return {name:d.manager.name,site:d.manager.site||'—',present,late,absent,leaveDays,permissionDays,hrs};
+    return {name:d.manager.name,site:d.manager.site||'—',present,extraDays,late,absent,leaveDays,permissionDays,hrs};
   });
 
   const totalPresent=summaryData.reduce((s,r)=>s+r.present,0);
+  const totalExtra=summaryData.reduce((s,r)=>s+r.extraDays,0);
   const totalLate=summaryData.reduce((s,r)=>s+r.late,0);
   const totalAbsent=summaryData.reduce((s,r)=>s+r.absent,0);
   const totalLeave=summaryData.reduce((s,r)=>s+r.leaveDays,0);
@@ -3078,6 +3370,7 @@ function renderMonthlyReportHtml(details){
         <div class="cover-meta">
           <div class="cover-meta-item"><span class="val">${details.length}</span><span class="lbl">إجمالي المديرين</span></div>
           <div class="cover-meta-item"><span class="val">${totalPresent}</span><span class="lbl">إجمالي أيام الحضور</span></div>
+          <div class="cover-meta-item"><span class="val">${totalExtra}</span><span class="lbl">أيام إضافية</span></div>
           <div class="cover-meta-item"><span class="val">${totalLate}</span><span class="lbl">إجمالي التأخيرات</span></div>
           <div class="cover-meta-item"><span class="val">${totalAbsent}</span><span class="lbl">إجمالي أيام الغياب</span></div>
           <div class="cover-meta-item"><span class="val">${totalLeave}</span><span class="lbl">إجمالي أيام الإجازات</span></div>
@@ -3089,11 +3382,12 @@ function renderMonthlyReportHtml(details){
       <div class="report-section-body">
         <div class="report-table-wrap" style="border:none;border-radius:0">
           <table>
-            <thead><tr><th>المدير</th><th>المشروع</th><th>أيام الحضور</th><th>أيام التأخير</th><th>أيام الغياب</th><th>أيام الإجازة</th><th>أيام الإذن</th><th>إجمالي الساعات</th></tr></thead>
+            <thead><tr><th>المدير</th><th>المشروع</th><th>أيام الحضور</th><th>أيام إضافية</th><th>أيام التأخير</th><th>أيام الغياب</th><th>أيام الإجازة</th><th>أيام الإذن</th><th>إجمالي الساعات</th></tr></thead>
             <tbody>${summaryData.map(r=>`<tr>
               <td style="font-weight:700">${r.name}</td>
               <td style="color:var(--text2)">${r.site}</td>
               <td style="color:var(--success);font-weight:700;text-align:center">${r.present}</td>
+              <td style="color:${r.extraDays>0?'#7c3aed':'var(--text3)'};font-weight:${r.extraDays>0?700:400};text-align:center">${r.extraDays||0}</td>
               <td style="color:${r.late>0?'var(--warn)':'var(--text3)'};font-weight:${r.late>0?700:400};text-align:center">${r.late||0}</td>
               <td style="color:${r.absent>0?'var(--danger)':'var(--text3)'};font-weight:${r.absent>0?700:400};text-align:center">${r.absent||0}</td>
               <td style="color:var(--accent);font-weight:600;text-align:center">${r.leaveDays||0}</td>
@@ -3170,13 +3464,15 @@ window.loadAdminYearlyData=async function(){
       const approvedLeaves=lSnap.docs.map(d=>({id:d.id,...d.data()}));
       const isF=m.schedule==='flexible';
 
-      let yearPresent=0,yearLate=0,yearLeave=0,yearPermission=0,yearAbsent=0,yearMins=0;
+      let yearPresent=0,yearExtra=0,yearLate=0,yearLeave=0,yearPermission=0,yearAbsent=0,yearMins=0;
       const monthly=[];
       for(let mo=1;mo<=12;mo++){
         const monthStr=`${year}-${String(mo).padStart(2,'0')}`;
         const monthRecs=allRecs.filter(r=>r.date.startsWith(monthStr)&&(r.checkIn||r.checkOut||['present','checkedin','late','partial'].includes(r.status)));
-        const present=monthRecs.length;
-        const late=isF?0:monthRecs.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length;
+        const split=splitAttendanceByWeekend(monthRecs,m.weekendDays);
+        const present=split.regular.length;
+        const extraDays=split.extra.length;
+        const late=isF?0:split.regular.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length;
         const leaveDayRows=[];
         const permissionDayRows=[];
         approvedLeaves.filter(l=>leaveOverlapsMonth(l,monthStr)).forEach(l=>leaveDatesInMonth(l,monthStr).forEach(dt=>{
@@ -3190,14 +3486,13 @@ window.loadAdminYearlyData=async function(){
         if(mo<=lastMonth){
           const [yy,mm2]=monthStr.split('-').map(Number);
           const dayLimit=(isCurYear&&mo===lastMonth)?now.getDate():new Date(yy,mm2,0).getDate();
-          let workingDays=0;
-          for(let d=1;d<=dayLimit;d++){if(new Date(yy,mm2-1,d).getDay()!==5)workingDays++;}
+          const workingDays=countWorkingDaysElapsed(yy,mm2,dayLimit,m.weekendDays);
           absent=Math.max(0,workingDays-present-leaveDays);
         }
-        yearPresent+=present;yearLate+=late;yearLeave+=leaveDays;yearPermission+=permissionDays;yearAbsent+=absent;yearMins+=mins;
-        monthly.push({mo,present,late,absent,leaveDays,permissionDays,mins});
+        yearPresent+=present;yearExtra+=extraDays;yearLate+=late;yearLeave+=leaveDays;yearPermission+=permissionDays;yearAbsent+=absent;yearMins+=mins;
+        monthly.push({mo,present,extraDays,late,absent,leaveDays,permissionDays,mins});
       }
-      results.push({manager:m,monthly,yearPresent,yearLate,yearLeave,yearPermission,yearAbsent,yearMins,isF});
+      results.push({manager:m,monthly,yearPresent,yearExtra,yearLate,yearLeave,yearPermission,yearAbsent,yearMins,isF});
     }
     window._admYearlyResults=results;
     window._admYearlySelectedYear=year;
@@ -3205,14 +3500,15 @@ window.loadAdminYearlyData=async function(){
     tableEl.innerHTML=`
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>المدير</th><th>المشروع</th><th>إجمالي الحضور</th><th>إجمالي التأخير</th><th>إجمالي الغياب</th><th>إجمالي الإجازات</th><th>إجمالي الإذن</th><th>إجمالي الساعات</th><th></th></tr></thead>
+          <thead><tr><th>المدير</th><th>المشروع</th><th>إجمالي الحضور</th><th>أيام إضافية</th><th>إجمالي التأخير</th><th>إجمالي الغياب</th><th>إجمالي الإجازات</th><th>إجمالي الإذن</th><th>إجمالي الساعات</th><th></th></tr></thead>
           <tbody>
-            ${results.length===0?'<tr><td colspan="9" class="tbl-empty">لا يوجد مديرون</td></tr>'
+            ${results.length===0?'<tr><td colspan="10" class="tbl-empty">لا يوجد مديرون</td></tr>'
             :results.map((r,i)=>`
             <tr style="cursor:pointer" onclick="toggleYearlyDetail(${i})">
               <td style="font-weight:700">${r.manager.name}</td>
               <td style="color:var(--text2)">${r.manager.site||'—'}</td>
               <td style="color:var(--success);font-weight:700;text-align:center">${r.yearPresent}</td>
+              <td style="color:${r.yearExtra>0?'#7c3aed':'var(--text3)'};font-weight:${r.yearExtra>0?700:400};text-align:center">${r.yearExtra||0}</td>
               <td style="color:${r.yearLate>0?'var(--warn)':'var(--text3)'};text-align:center">${r.yearLate}</td>
               <td style="color:${r.yearAbsent>0?'var(--danger)':'var(--text3)'};text-align:center">${r.yearAbsent}</td>
               <td style="color:var(--accent);text-align:center">${r.yearLeave}</td>
@@ -3220,12 +3516,13 @@ window.loadAdminYearlyData=async function(){
               <td style="font-weight:700;text-align:center">${hoursLabel(r.yearMins)}</td>
               <td style="text-align:center;font-size:11px;color:var(--text3)">👁️ تفاصيل الشهور</td>
             </tr>
-            <tr id="yearlyDetail${i}" class="hidden"><td colspan="9" style="padding:0">
+            <tr id="yearlyDetail${i}" class="hidden"><td colspan="10" style="padding:0">
               <table style="margin:0">
-                <thead><tr><th>الشهر</th><th>حضور</th><th>تأخير</th><th>غياب</th><th>إجازة</th><th>إذن</th><th>ساعات</th></tr></thead>
+                <thead><tr><th>الشهر</th><th>حضور</th><th>إضافي</th><th>تأخير</th><th>غياب</th><th>إجازة</th><th>إذن</th><th>ساعات</th></tr></thead>
                 <tbody>${r.monthly.map(mm=>`<tr>
                   <td>${monthNames[mm.mo-1]}</td>
                   <td style="text-align:center;color:var(--success)">${mm.present}</td>
+                  <td style="text-align:center;color:${mm.extraDays>0?'#7c3aed':'var(--text3)'}">${mm.extraDays||0}</td>
                   <td style="text-align:center;color:${mm.late>0?'var(--warn)':'var(--text3)'}">${mm.late}</td>
                   <td style="text-align:center;color:${mm.absent>0?'var(--danger)':'var(--text3)'}">${mm.absent}</td>
                   <td style="text-align:center;color:var(--accent)">${mm.leaveDays}</td>
@@ -3236,6 +3533,7 @@ window.loadAdminYearlyData=async function(){
             </td></tr>`).join('')}
             ${results.length?`<tr class="total"><td style="font-weight:700">الإجمالي</td><td>—</td>
               <td style="text-align:center;font-weight:700">${results.reduce((s,r)=>s+r.yearPresent,0)}</td>
+              <td style="text-align:center;font-weight:700">${results.reduce((s,r)=>s+(r.yearExtra||0),0)}</td>
               <td style="text-align:center;font-weight:700">${results.reduce((s,r)=>s+r.yearLate,0)}</td>
               <td style="text-align:center;font-weight:700">${results.reduce((s,r)=>s+r.yearAbsent,0)}</td>
               <td style="text-align:center;font-weight:700">${results.reduce((s,r)=>s+r.yearLeave,0)}</td>
@@ -3269,13 +3567,14 @@ window.exportAdminYearlyExcel=function(){
     .total{font-weight:bold;background:#f7f7f7}
   </style>`;
   let html=`${css}<div class="title">الملخص السنوي ${safe(year)}</div>
-  <table><thead><tr><th>المدير</th><th>المشروع</th><th>إجمالي الحضور</th><th>إجمالي التأخير</th><th>إجمالي الغياب</th><th>إجمالي الإجازات</th><th>إجمالي الإذن</th><th>إجمالي الساعات</th></tr></thead>
+  <table><thead><tr><th>المدير</th><th>المشروع</th><th>إجمالي الحضور</th><th>أيام إضافية</th><th>إجمالي التأخير</th><th>إجمالي الغياب</th><th>إجمالي الإجازات</th><th>إجمالي الإذن</th><th>إجمالي الساعات</th></tr></thead>
   <tbody>${results.map(r=>`<tr>
     <td class="right">${safe(r.manager.name)}</td><td class="right">${safe(r.manager.site)}</td>
-    <td>${r.yearPresent}</td><td>${r.yearLate}</td><td>${r.yearAbsent}</td><td>${r.yearLeave}</td><td>${r.yearPermission}</td><td>${hoursLabel(r.yearMins)}</td>
+    <td>${r.yearPresent}</td><td>${r.yearExtra||0}</td><td>${r.yearLate}</td><td>${r.yearAbsent}</td><td>${r.yearLeave}</td><td>${r.yearPermission}</td><td>${hoursLabel(r.yearMins)}</td>
   </tr>`).join('')}
   <tr class="total"><td colspan="2" class="right">الإجمالي</td>
     <td>${results.reduce((s,r)=>s+r.yearPresent,0)}</td>
+    <td>${results.reduce((s,r)=>s+(r.yearExtra||0),0)}</td>
     <td>${results.reduce((s,r)=>s+r.yearLate,0)}</td>
     <td>${results.reduce((s,r)=>s+r.yearAbsent,0)}</td>
     <td>${results.reduce((s,r)=>s+r.yearLeave,0)}</td>
@@ -3284,8 +3583,8 @@ window.exportAdminYearlyExcel=function(){
   </tr></tbody></table>`;
   results.forEach(r=>{
     html+=`<div class="manager">${safe(r.manager.name)} — ${safe(r.manager.site)}</div>
-    <table><thead><tr><th>الشهر</th><th>حضور</th><th>تأخير</th><th>غياب</th><th>إجازة</th><th>إذن</th><th>ساعات</th></tr></thead>
-    <tbody>${r.monthly.map(mm=>`<tr><td>${monthNames[mm.mo-1]}</td><td>${mm.present}</td><td>${mm.late}</td><td>${mm.absent}</td><td>${mm.leaveDays}</td><td>${mm.permissionDays}</td><td>${hoursLabel(mm.mins)}</td></tr>`).join('')}</tbody></table>`;
+    <table><thead><tr><th>الشهر</th><th>حضور</th><th>إضافي</th><th>تأخير</th><th>غياب</th><th>إجازة</th><th>إذن</th><th>ساعات</th></tr></thead>
+    <tbody>${r.monthly.map(mm=>`<tr><td>${monthNames[mm.mo-1]}</td><td>${mm.present}</td><td>${mm.extraDays||0}</td><td>${mm.late}</td><td>${mm.absent}</td><td>${mm.leaveDays}</td><td>${mm.permissionDays}</td><td>${hoursLabel(mm.mins)}</td></tr>`).join('')}</tbody></table>`;
   });
   downloadExcelHtml(`الملخص_السنوي_${year}.xls`,html);
   toast('✅ تم تصدير الملخص السنوي','success');
@@ -3296,13 +3595,17 @@ function buildDetailedReportHtml(details,month){
   const [y,m]=month.split('-');
   const monthLabel=new Date(Number(y),Number(m)-1,1).toLocaleDateString('ar-EG',{year:'numeric',month:'long'});
   const scheduleLabel={morning:'صباحي',evening:'مسائي',flexible:'مرن',custom:'مخصص'};
-  const statusText=s=>({present:'حاضر',late:'متأخر',partial:'غادر مبكراً',checkedin:'الدوام جارٍ (لم يسجل خروج)',absent:'غائب',leave:'إجازة'})[s]||s||'';
+  const statusText=s=>({present:'حاضر',late:'متأخر',partial:'غادر مبكراً',checkedin:'الدوام جارٍ (لم يسجل خروج)',absent:'غائب',leave:'إجازة',extra:'يوم إضافي'})[s]||s||'';
 
   function totalMinutes(attendance){
     return attendance.reduce((s,r)=>{const wh=String(r.workHours||'0');if(wh.includes(':')){const [h,mm]=wh.split(':').map(Number);return s+(h||0)*60+(mm||0)}return s+(parseFloat(wh)||0)*60},0);
   }
   function hoursDisplay(mins){return `${Math.floor(mins/60)}:${String(Math.round(mins%60)).padStart(2,'0')}`}
-  function lateCount(d){const isF=d.manager.schedule==='flexible';return isF?0:d.attendance.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length}
+  function lateCount(d){
+    const isF=d.manager.schedule==='flexible';
+    if(isF)return 0;
+    return splitAttendanceByWeekend(d.attendance,d.manager.weekendDays).regular.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length;
+  }
   function safe(v){return excelCell(v==null||v===''?'—':v)}
   function dayName(date){try{return new Date(date).toLocaleDateString('ar-EG',{weekday:'long'})}catch(e){return '—'}}
   function rangeCell(r){
@@ -3315,12 +3618,14 @@ function buildDetailedReportHtml(details,month){
 
   const summaryRows=details.map((d,i)=>{
     const mins=totalMinutes(d.attendance);
+    const split=splitAttendanceByWeekend(d.attendance,d.manager.weekendDays);
     return`<tr>
       <td>${i+1}</td>
       <td class="right">${safe(d.manager.name)}</td>
       <td class="right">${safe(d.manager.site)}</td>
       <td>${safe(scheduleLabel[d.manager.schedule]||d.manager.schedule)}</td>
-      <td>${d.attendance.length}</td>
+      <td>${split.regular.length}</td>
+      <td>${split.extra.length}</td>
       <td>${lateCount(d)}</td>
       <td>${d.leaveDayRows.length}</td>
       <td>${d.permissionDayRows.length}</td>
@@ -3328,7 +3633,8 @@ function buildDetailedReportHtml(details,month){
     </tr>`;
   }).join('');
 
-  const totalPresent=details.reduce((s,d)=>s+d.attendance.length,0);
+  const totalPresent=details.reduce((s,d)=>s+splitAttendanceByWeekend(d.attendance,d.manager.weekendDays).regular.length,0);
+  const totalExtra=details.reduce((s,d)=>s+splitAttendanceByWeekend(d.attendance,d.manager.weekendDays).extra.length,0);
   const totalLate=details.reduce((s,d)=>s+lateCount(d),0);
   const totalLeave=details.reduce((s,d)=>s+d.leaveDayRows.length,0);
   const totalPermission=details.reduce((s,d)=>s+d.permissionDayRows.length,0);
@@ -3340,8 +3646,8 @@ function buildDetailedReportHtml(details,month){
 
   <div class="section">ملخص التقرير</div>
   <table>
-    <thead><tr><th>#</th><th>اسم المدير</th><th>الموقع / المشروع</th><th>نوع الدوام</th><th>أيام الحضور</th><th>أيام التأخير</th><th>أيام الإجازة</th><th>أيام الإذن</th><th>إجمالي الساعات</th></tr></thead>
-    <tbody>${summaryRows}<tr class="total"><td colspan="4" class="right">الإجمالي</td><td>${totalPresent}</td><td>${totalLate}</td><td>${totalLeave}</td><td>${totalPermission}</td><td>${totalHrs}</td></tr></tbody>
+    <thead><tr><th>#</th><th>اسم المدير</th><th>الموقع / المشروع</th><th>نوع الدوام</th><th>أيام الحضور</th><th>أيام إضافية</th><th>أيام التأخير</th><th>أيام الإجازة</th><th>أيام الإذن</th><th>إجمالي الساعات</th></tr></thead>
+    <tbody>${summaryRows}<tr class="total"><td colspan="4" class="right">الإجمالي</td><td>${totalPresent}</td><td>${totalExtra}</td><td>${totalLate}</td><td>${totalLeave}</td><td>${totalPermission}</td><td>${totalHrs}</td></tr></tbody>
   </table>`;
 
   details.forEach(d=>{
@@ -3353,8 +3659,9 @@ function buildDetailedReportHtml(details,month){
       :'<th>اليوم</th><th>التاريخ</th><th>وقت الدخول</th><th>وقت الخروج</th><th>ساعات العمل</th><th>التأخير بالدقائق</th><th>عنوان الدخول</th><th>عنوان الخروج</th><th>النطاق (الدخول)</th><th>الحالة</th><th>ملاحظات</th>';
 
     const attRows=d.attendance.length?d.attendance.map(r=>{
-      const st=r.schedule==='flexible'&&r.status==='late'?'present':r.status;
-      const lateMin=(!isF&&Number(r.lateMinutes||0)>0)?Number(r.lateMinutes||0):'—';
+      const extra=isExtraWorkRecord(r,d.manager.weekendDays);
+      const st=extra?'extra':(r.schedule==='flexible'&&r.status==='late'?'present':r.status);
+      const lateMin=(!isF&&!extra&&Number(r.lateMinutes||0)>0)?Number(r.lateMinutes||0):'—';
       let cells=`<td>${safe(dayName(r.date))}</td><td>${safe(r.date)}</td><td>${safe(r.checkIn)}</td><td>${safe(r.checkOut)}</td><td>${safe(fmtWorkHours(r.workHours))}</td>`;
       if(!isF)cells+=`<td>${lateMin}</td>`;
       cells+=`<td class="right">${safe(r.inAddress)}</td><td class="right">${safe(r.outAddress)}</td><td>${rangeCell(r)}</td><td>${safe(statusText(st))}</td><td class="right">${safe(r.adminNote||r.note)}</td>`;
@@ -3384,9 +3691,10 @@ function buildDetailedReportHtml(details,month){
       <td>${safe(dayName(l.date))}</td><td>${safe(l.date)}</td><td class="right">${safe(l.reason)}</td><td>${safe(l.decidedBy)}</td>
     </tr>`).join(''):`<tr><td colspan="4" class="empty">لا توجد طلبات إذن معتمدة خلال هذا الشهر</td></tr>`;
 
+    const split=splitAttendanceByWeekend(d.attendance,d.manager.weekendDays);
     body+=`
     <div class="manager">${safe(d.manager.name)}</div>
-    <div class="manager-info">الموقع/المشروع: ${safe(d.manager.site)} | الدوام: ${safe(schedName)} | الحضور: ${d.attendance.length} يوم | التأخير: ${lateCount(d)} | الإجازات: ${d.leaveDayRows.length} يوم | الإذن: ${d.permissionDayRows.length} | إجمالي الساعات: ${hoursDisplay(mins)}</div>
+    <div class="manager-info">الموقع/المشروع: ${safe(d.manager.site)} | الدوام: ${safe(schedName)} | الحضور: ${split.regular.length} يوم | إضافي: ${split.extra.length} | التأخير: ${lateCount(d)} | الإجازات: ${d.leaveDayRows.length} يوم | الإذن: ${d.permissionDayRows.length} | إجمالي الساعات: ${hoursDisplay(mins)}</div>
 
     <div class="section">سجل الحضور والانصراف</div>
     <table><thead><tr>${attHeaders}</tr></thead><tbody>${attRows}</tbody></table>
@@ -3482,7 +3790,7 @@ window.exportAdminMonthlySimpleCSV=function(){
     return attendance.reduce((s,r)=>{const wh=String(r.workHours||'0');if(wh.includes(':')){const [h,mm]=wh.split(':').map(Number);return s+(h||0)*60+(mm||0)}return s+(parseFloat(wh)||0)*60},0);
   }
   function hoursLabel(mins){return `${(mins/60).toFixed(1)}h`}
-  function lateCountFn(d){const isF=d.manager.schedule==='flexible';return isF?0:d.attendance.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length}
+  function lateCountFn(d){const isF=d.manager.schedule==='flexible';return isF?0:splitAttendanceByWeekend(d.attendance,d.manager.weekendDays).regular.filter(r=>r.status==='late'||Number(r.lateMinutes||0)>0).length}
 
   // working days elapsed in the month (up to today if current month, else full month)
   const [y,m]=month.split('-').map(Number);
@@ -3490,30 +3798,29 @@ window.exportAdminMonthlySimpleCSV=function(){
   const isCurrentMonth=(now.getFullYear()===y&&now.getMonth()+1===m);
   const lastDay=new Date(y,m,0).getDate();
   const dayLimit=isCurrentMonth?now.getDate():lastDay;
-  let workingDaysSoFar=0;
-  for(let d=1;d<=dayLimit;d++){
-    const dow=new Date(y,m-1,d).getDay(); // 0=Sun..6=Sat, Friday(5) considered weekend
-    if(dow!==5)workingDaysSoFar++;
-  }
 
-  const header=['المدير','المشروع','أيام الحضور','أيام التأخير','أيام الغياب','أيام الإجازة','أيام الإذن','إجمالي الساعات'];
+  const header=['المدير','المشروع','أيام الحضور','أيام إضافية','أيام التأخير','أيام الغياب','أيام الإجازة','أيام الإذن','إجمالي الساعات'];
   const rows=details.map(d=>{
-    const present=d.attendance.length;
+    const split=splitAttendanceByWeekend(d.attendance,d.manager.weekendDays);
+    const present=split.regular.length;
+    const extraDays=split.extra.length;
     const late=lateCountFn(d);
     const leaveDays=d.leaveDayRows.length;
     const permissionDays=d.permissionDayRows.length;
+    const workingDaysSoFar=countWorkingDaysElapsed(y,m,dayLimit,d.manager.weekendDays);
     const absent=Math.max(0,workingDaysSoFar-present-leaveDays);
     const hrs=hoursLabel(totalMinutes(d.attendance));
-    return [d.manager.name||'—',d.manager.site||'—',present,late,absent,leaveDays,permissionDays,hrs];
+    return [d.manager.name||'—',d.manager.site||'—',present,extraDays,late,absent,leaveDays,permissionDays,hrs];
   });
 
   const totalPresent=rows.reduce((s,r)=>s+r[2],0);
-  const totalLate=rows.reduce((s,r)=>s+r[3],0);
-  const totalAbsent=rows.reduce((s,r)=>s+r[4],0);
-  const totalLeave=rows.reduce((s,r)=>s+r[5],0);
-  const totalPermission=rows.reduce((s,r)=>s+r[6],0);
+  const totalExtra=rows.reduce((s,r)=>s+r[3],0);
+  const totalLate=rows.reduce((s,r)=>s+r[4],0);
+  const totalAbsent=rows.reduce((s,r)=>s+r[5],0);
+  const totalLeave=rows.reduce((s,r)=>s+r[6],0);
+  const totalPermission=rows.reduce((s,r)=>s+r[7],0);
   const totalHrsVal=details.reduce((s,d)=>s+totalMinutes(d.attendance),0);
-  const totalRow=['الإجمالي','—',totalPresent,totalLate,totalAbsent,totalLeave,totalPermission,hoursLabel(totalHrsVal)];
+  const totalRow=['الإجمالي','—',totalPresent,totalExtra,totalLate,totalAbsent,totalLeave,totalPermission,hoursLabel(totalHrsVal)];
 
   const csv='\uFEFF'+[header,...rows,totalRow].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
@@ -3553,6 +3860,7 @@ window.saveAttNote=async function(managerId, date){
 /* ── SETTINGS ── */
 function numOr(val,fallback){return (val===undefined||val===null)?fallback:val}
 async function renderSettings(){
+  if(!requirePerm('settings')){const el=document.getElementById('admSettings');if(el)el.innerHTML='<div class="notice notice-warn">ليس لديك صلاحية الإعدادات</div>';return}
   const el=document.getElementById('admSettings');if(!el)return;
   el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text2)">جارٍ التحميل...</div>';
   try{
@@ -3637,6 +3945,7 @@ async function renderSettings(){
 }
 
 window.saveWorkSchedule=async function(){
+  if(!requirePerm('settings'))return;
   const noticeEl=document.getElementById('noticeSchedule');
   const btn=document.getElementById('btnSaveSchedule');
   if(btn){btn.disabled=true;btn.textContent='جارٍ الحفظ...';}
@@ -3657,6 +3966,7 @@ window.saveWorkSchedule=async function(){
   }finally{if(btn){btn.disabled=false;btn.textContent='💾 حفظ جدول الدوام';}}
 };
 window.saveLeavePolicies=async function(){
+  if(!requirePerm('settings'))return;
   const noticeEl=document.getElementById('noticePolicy');
   const btn=document.getElementById('btnSavePolicy');
   if(btn){btn.disabled=true;btn.textContent='جارٍ الحفظ...';}
@@ -3676,6 +3986,7 @@ window.saveLeavePolicies=async function(){
   }finally{if(btn){btn.disabled=false;btn.textContent='💾 حفظ سياسات الإجازات';}}
 };
 window.saveAttendanceRules=async function(){
+  if(!requirePerm('settings'))return;
   const noticeEl=document.getElementById('noticeRules');
   const btn=document.getElementById('btnSaveRules');
   if(btn){btn.disabled=true;btn.textContent='جارٍ الحفظ...';}
@@ -3714,9 +4025,7 @@ window.showLocModal = function(i, source){
 
   // Both superadmin and admin can view the modal
   // Only superadmin sees the Google Maps link buttons (view-only for admin)
-  const isSuperAdmin = currentProfile && currentProfile.role === 'superadmin';
-  const isAdminRole  = currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'superadmin');
-  if(!isAdminRole) return; // employees/managers cannot open this modal
+  if(!hasPerm('attend')) return;
 
   const hasInMap  = r.inLat  && r.inLng;
   const hasOutMap = r.outLat && r.outLng;
@@ -3776,7 +4085,6 @@ window.showLocModal = function(i, source){
         src="https://maps.google.com/maps?q=${r.inLat},${r.inLng}&z=17&output=embed"
         width="100%" height="200" style="border:none" loading="lazy"></iframe>
     </div>
-    ${isSuperAdmin ? `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
       <a href="https://maps.google.com/?q=${r.inLat},${r.inLng}" target="_blank"
          style="flex:1;text-align:center;background:var(--accent);color:#fff;padding:10px;border-radius:var(--r);font-size:13px;text-decoration:none;font-weight:600">
@@ -3786,7 +4094,7 @@ window.showLocModal = function(i, source){
          style="flex:1;text-align:center;background:#6d28d9;color:#fff;padding:10px;border-radius:var(--r);font-size:13px;text-decoration:none;font-weight:600">
          🗺️ موقع الانصراف
       </a>` : ''}
-    </div>` : `<div style="font-size:11px;color:var(--text3);text-align:center;padding:4px 0">👁️ عرض فقط — فتح الخريطة الخارجية متاح للسوبر أدمن</div>`}
+    </div>
     ` : `<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px">⚠️ لا توجد بيانات موقع لهذا السجل</div>`}
 
     <div class="modal-footer"><button class="btn-ghost" onclick="closeModal()">إغلاق</button></div>
