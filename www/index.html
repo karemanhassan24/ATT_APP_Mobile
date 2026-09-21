@@ -50,8 +50,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent2);background:#
 .ms-option{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;font-size:13px;cursor:pointer}
 .ms-option:hover{background:var(--bg3)}
 .ms-option input{width:auto}
-.perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px;margin-bottom:8px}
-@media(max-width:520px){.perm-grid{grid-template-columns:1fr}}
+.perm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px;margin-bottom:8px}
+.perm-grid .ms-option{padding:10px;align-items:flex-start}
+.perm-grid .ms-option input{width:18px;min-width:18px;height:18px;padding:0;flex-shrink:0;margin-top:1px;accent-color:var(--accent2)}
+.perm-grid .ms-option span{line-height:1.5;word-break:break-word}
+.perm-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.perm-cell{font-size:11px;color:var(--text2);min-width:150px;max-width:260px;white-space:normal;line-height:1.6}
 input::placeholder,textarea::placeholder{color:var(--text3)}
 input[disabled]{opacity:.5;cursor:not-allowed}
 button{cursor:pointer;border:none;border-radius:var(--r);font-size:14px;padding:10px 20px;transition:all .18s;font-family:inherit;font-weight:500}
@@ -325,6 +329,12 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
   .user-meta{display:none}
   .topbar{padding:0 14px}
   th,td{padding:9px 10px}
+  .modal-overlay{padding:10px}
+  .modal{padding:18px 14px;max-width:100%;max-height:94vh}
+  .modal-footer{flex-direction:column-reverse;gap:8px}
+  .modal-footer button{width:100%}
+  .perm-grid{grid-template-columns:1fr;max-height:46vh;overflow-y:auto}
+  .perm-actions button{flex:1}
 }
 @media(max-width:480px){.tab,.admin-tab{padding:7px 11px;font-size:12px}}
 
@@ -626,9 +636,9 @@ function permissionsLabel(u){
 function permissionsPickerHtml(prefix,role,selected){
   const sel=normalizePermissions(role,selected);
   return `<div style="font-size:13px;font-weight:700;margin:4px 0 8px">🔐 صلاحيات هذا المستخدم</div>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <button type="button" class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="setAllPerms('${prefix}',true)">تحديد الكل</button>
-      <button type="button" class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="setAllPerms('${prefix}',false)">إلغاء الكل</button>
+    <div class="perm-actions">
+      <button type="button" class="btn-ghost" style="padding:6px 10px;font-size:12px" onclick="setAllPerms('${prefix}',true)">تحديد الكل</button>
+      <button type="button" class="btn-ghost" style="padding:6px 10px;font-size:12px" onclick="setAllPerms('${prefix}',false)">إلغاء الكل</button>
     </div>
     <div class="perm-grid">
       ${PERM_DEFS.map(p=>`<label class="ms-option">
@@ -2654,7 +2664,7 @@ async function renderAdmUsers(){
               <td style="font-family:monospace;font-size:12px;color:var(--text2)">${a.username||'—'}</td>
               <td style="font-size:12px">${a.email||'—'}</td>
               <td><span class="badge ${a.role==='superadmin'?'badge-purple':'badge-info'}">${a.role==='superadmin'?'سوبر أدمن':'أدمن قسم'}</span></td>
-              <td style="font-size:11px;color:var(--text2);max-width:240px">${permissionsLabel(a)}</td>
+              <td class="perm-cell">${permissionsLabel(a)}</td>
               <td><span class="badge ${a.disabled?'badge-danger':'badge-success'}">${a.disabled?'موقوف':'نشط'}</span></td>
               ${hasPerm('usersAdmin')?`<td style="display:flex;gap:4px;flex-wrap:wrap">
                 <button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showEditAdminModal('${a.id}')">🔐 صلاحيات</button>
