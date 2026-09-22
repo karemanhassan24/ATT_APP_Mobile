@@ -62,6 +62,14 @@ workflows:
           grep -q 'android.permission.ACCESS_FINE_LOCATION' "$MANIFEST"
           grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
           echo "Location permissions verified in AndroidManifest.xml"
+      - name: Patch status bar spacing (no full screen under system bars)
+        script: bash scripts/patch-android-statusbar.sh android
+      - name: Verify status bar patch
+        script: |
+          STYLES="android/app/src/main/res/values/styles.xml"
+          grep -q 'android:windowOptOutEdgeToEdgeEnforcement' "$STYLES"
+          grep -q 'android:fitsSystemWindows' "$STYLES"
+          echo "Status bar spacing verified in styles.xml"
       - name: Build debug APK
         script: |
           cd android
@@ -141,6 +149,14 @@ workflows:
           grep -q 'android.permission.ACCESS_FINE_LOCATION' "$MANIFEST"
           grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
           echo "Location permissions verified in AndroidManifest.xml"
+      - name: Patch status bar spacing (no full screen under system bars)
+        script: bash scripts/patch-android-statusbar.sh android
+      - name: Verify status bar patch
+        script: |
+          STYLES="android/app/src/main/res/values/styles.xml"
+          grep -q 'android:windowOptOutEdgeToEdgeEnforcement' "$STYLES"
+          grep -q 'android:fitsSystemWindows' "$STYLES"
+          echo "Status bar spacing verified in styles.xml"
       - name: Build release APK
         script: |
           cd android
