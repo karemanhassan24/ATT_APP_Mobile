@@ -2,9 +2,10 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <title>نظام الحضور والانصراف — مجموعة الفتح</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
@@ -37,6 +38,10 @@
   --shadow-md:0 4px 14px rgba(0,0,0,.09),0 2px 4px rgba(0,0,0,.05);
   --shadow-lg:0 10px 32px rgba(0,0,0,.11),0 4px 8px rgba(0,0,0,.06);
   --r:8px;--r2:12px;--r3:16px;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+  --safe-left:env(safe-area-inset-left,0px);
+  --safe-right:env(safe-area-inset-right,0px);
 }
 html,body{height:100%;font-family:'IBM Plex Sans Arabic',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
 .hidden{display:none!important}
@@ -90,7 +95,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* LOGIN */
-#loginPage{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(145deg,#dbeafe 0%,#f0f2f8 50%,#ede9fe 100%)}
+#loginPage{min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:calc(20px + var(--safe-top)) 20px calc(20px + var(--safe-bottom));background:linear-gradient(145deg,#dbeafe 0%,#f0f2f8 50%,#ede9fe 100%)}
 .login-wrap{width:100%;max-width:400px}
 .login-box{background:var(--card);border:1px solid var(--border);border-radius:var(--r3);padding:36px;box-shadow:var(--shadow-lg);animation:fadeUp .4s ease}
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -106,7 +111,7 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
 .demo-row:last-child{border-bottom:none}
 
 /* TOPBAR */
-.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:0 20px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:var(--safe-top) 20px 0;min-height:calc(58px + var(--safe-top));height:auto;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 1px 4px rgba(0,0,0,.07);box-sizing:border-box}
 .topbar-left{display:flex;align-items:center;gap:12px}
 .topbar-logo{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
 .topbar-name{font-size:15px;font-weight:700}
@@ -205,7 +210,7 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
 .field-label{font-size:12px;color:var(--text2);display:block;margin-bottom:6px;font-weight:500}
 
 /* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:500;display:flex;align-items:center;justify-content:center;padding:calc(20px + var(--safe-top)) 20px calc(20px + var(--safe-bottom));backdrop-filter:blur(3px)}
 .modal{background:var(--card);border:1px solid var(--border);border-radius:var(--r3);padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:modalIn .25s ease}
 @keyframes modalIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
 .modal h2{font-size:18px;font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:8px}
@@ -282,10 +287,10 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
 .presence.checkedin{background:#f59e0b;box-shadow:0 0 0 2px rgba(245,158,11,.2)}
 
 /* OFFLINE */
-#offlineBanner{background:var(--warn);color:#fff;text-align:center;padding:8px;font-size:13px;display:none}
+#offlineBanner{background:var(--warn);color:#fff;text-align:center;padding:calc(8px + var(--safe-top)) 8px 8px;font-size:13px;display:none}
 
 /* TOAST */
-#toastContainer{position:fixed;bottom:20px;right:20px;left:20px;z-index:9000;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
+#toastContainer{position:fixed;bottom:calc(20px + var(--safe-bottom));right:calc(20px + var(--safe-right));left:calc(20px + var(--safe-left));z-index:9000;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
 .toast{background:var(--text);color:#fff;padding:12px 18px;border-radius:var(--r2);font-size:13px;box-shadow:var(--shadow-lg);animation:toastIn .3s ease;pointer-events:auto;max-width:320px;display:flex;align-items:center;gap:10px}
 .toast.success{background:var(--success)}
 .toast.danger{background:var(--danger)}
@@ -327,7 +332,7 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
   .time-big{font-size:36px}
   .login-box{padding:24px 20px}
   .user-meta{display:none}
-  .topbar{padding:0 14px}
+  .topbar{padding:var(--safe-top) 14px 0}
   th,td{padding:9px 10px}
   .modal-overlay{padding:10px}
   .modal{padding:18px 14px;max-width:100%;max-height:94vh}
@@ -339,7 +344,7 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
 @media(max-width:480px){.tab,.admin-tab{padding:7px 11px;font-size:12px}}
 
 /* CHECKIN CONFIRM OVERLAY */
-.checkin-confirm{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:600;display:flex;align-items:center;justify-content:center;animation:fadeInOv .3s ease}
+.checkin-confirm{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:600;display:flex;align-items:center;justify-content:center;padding:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);animation:fadeInOv .3s ease;box-sizing:border-box}
 @keyframes fadeInOv{from{opacity:0}to{opacity:1}}
 .checkin-confirm-box{background:var(--card);border-radius:var(--r3);padding:36px 28px;text-align:center;max-width:340px;width:90%;box-shadow:var(--shadow-lg);animation:popIn .35s cubic-bezier(.34,1.56,.64,1)}
 @keyframes popIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
@@ -535,12 +540,38 @@ function attendanceStatusBadge(r,schedule,weekendDays){
   const st=(schedule==='flexible'&&r.status==='late')?'present':r.status;
   return statusBadge(st);
 }
-function countWorkingDaysElapsed(year,month1to12,dayLimit,weekendDays){
+function countWorkingDaysElapsed(year,month1to12,dayLimit,weekendDays,startDate){
   let n=0;
+  const mm=String(month1to12).padStart(2,'0');
   for(let d=1;d<=dayLimit;d++){
+    if(startDate&&`${year}-${mm}-${String(d).padStart(2,'0')}`<startDate)continue;
     if(!isWeekendDow(new Date(year,month1to12-1,d).getDay(),weekendDays))n++;
   }
   return n;
+}
+/* تاريخ بداية احتساب الحضور: إعداد عام يحدده السوبر أدمن + تاريخ إنشاء حساب المدير */
+let attendanceRulesCache=null;
+async function loadAttendanceRules(force){
+  if(attendanceRulesCache&&!force)return attendanceRulesCache;
+  try{
+    const snap=await getDoc(doc(db,'config','attendanceRules'));
+    attendanceRulesCache=snap.exists()?snap.data():{};
+  }catch(e){attendanceRulesCache={}}
+  return attendanceRulesCache;
+}
+function toDateStr(v){
+  if(!v)return '';
+  if(typeof v==='string')return /^\d{4}-\d{2}-\d{2}/.test(v)?v.slice(0,10):'';
+  const d=typeof v.toDate==='function'?v.toDate():(v instanceof Date?v:null);
+  if(!d||isNaN(d.getTime()))return '';
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+/* أحدث تاريخ بين بداية النظام وتاريخ إنشاء حساب المدير — قبله لا يُحتسب غياب */
+function countingStartDate(user,rules){
+  const r=rules||attendanceRulesCache||{};
+  const dates=[toDateStr(r.attendanceStartDate)];
+  if(r.countFromUserCreatedAt!==false)dates.push(toDateStr(user?.startDate||user?.createdAt));
+  return dates.filter(Boolean).sort().pop()||'';
 }
 function weekendDaysLabel(weekendDays){return normalizeWeekendDays(weekendDays).map(i=>WEEKDAY_AR[i]).join('، ')||'—'}
 function weekendDaysPickerHtml(prefix,selected){
@@ -595,7 +626,6 @@ const PERM_DEFS=[
   {key:'usersManage',label:'✏️ إضافة وتعديل المديرين'},
   {key:'usersAdmin',label:'🔑 إدارة الأدمنز والصلاحيات'},
   {key:'usersDelete',label:'🚫 إيقاف وحذف المستخدمين'},
-  {key:'heatmap',label:'🔥 خريطة الغياب'},
   {key:'monthly',label:'📑 التقرير الشهري'},
   {key:'yearly',label:'📅 الملخص السنوي'},
   {key:'audit',label:'🔍 سجل التدقيق'},
@@ -1255,7 +1285,6 @@ async function renderManagerPage(){
   el.innerHTML=`
     <div class="tabs">
       <button class="tab active" onclick="mgrTab(this,'mgrAtt')">🏠 الحضور</button>
-      <button class="tab" onclick="mgrTab(this,'mgrQR')">📱 QR Code</button>
       <button class="tab" onclick="mgrTab(this,'mgrLeave')">🏖️ الإجازات</button>
       <button class="tab" onclick="mgrTab(this,'mgrHistory')">📊 السجل</button>
       <button class="tab" onclick="mgrTab(this,'mgrReport')">📄 التقرير</button>
@@ -1916,7 +1945,7 @@ async function renderSuperAdminPage(){
     {id:'admAttend',perm:'attend',label:'📋 الحضور'},
     {id:'admLeaves',perm:'leaves',label:'🏖️ الإجازات'},
     {id:'admUsers',perm:'users',label:'👥 المستخدمين'},
-    {id:'admHeatmap',perm:'heatmap',label:'🔥 خريطة الغياب'},
+  
     {id:'admMonthly',perm:'monthly',label:'📑 التقرير الشهري'},
     {id:'admYearly',perm:'yearly',label:'📅 الملخص السنوي'},
     {id:'admAudit',perm:'audit',label:'🔍 سجل التدقيق'},
@@ -3309,6 +3338,7 @@ window.loadAdminMonthlyData=async function(){
   const tableEl=document.getElementById('admMonthlyTable');
   if(!tableEl||!month)return;
   tableEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">⏳ جارٍ تحميل البيانات التفصيلية...</div>';
+  await loadAttendanceRules();
   const managers=window._admMonthlyManagers||[];
   const details=[];
   for(const m of managers){
@@ -3371,7 +3401,7 @@ function renderMonthlyReportHtml(details){
     const late=lateCountFn(d);
     const leaveDays=d.leaveDayRows.length;
     const permissionDays=d.permissionDayRows.length;
-    const workingDaysSoFar=countWorkingDaysElapsed(yy,mm,dayLimit,d.manager.weekendDays);
+    const workingDaysSoFar=countWorkingDaysElapsed(yy,mm,dayLimit,d.manager.weekendDays,countingStartDate(d.manager));
     const absent=Math.max(0,workingDaysSoFar-present-leaveDays);
     const hrs=`${(totalMinutes(d.attendance)/60).toFixed(1)}h`;
     return {name:d.manager.name,site:d.manager.site||'—',present,extraDays,late,absent,leaveDays,permissionDays,hrs};
@@ -3466,6 +3496,7 @@ window.loadAdminYearlyData=async function(){
   if(!tableEl)return;
   tableEl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text2)">⏳ جارٍ تحميل البيانات السنوية...</div>';
   try{
+    await loadAttendanceRules();
     const usersSnap=await getDocs(query(collection(db,'users'),where('role','==','manager')));
     const managers=usersSnap.docs.map(d=>({id:d.id,...d.data()})).filter(m=>!m.disabled);
 
@@ -3486,6 +3517,7 @@ window.loadAdminYearlyData=async function(){
       const lSnap=await getDocs(query(collection(db,'leaves'),where('uid','==',m.id),where('status','==','approved')));
       const approvedLeaves=lSnap.docs.map(d=>({id:d.id,...d.data()}));
       const isF=m.schedule==='flexible';
+      const startDate=countingStartDate(m);
 
       let yearPresent=0,yearExtra=0,yearLate=0,yearLeave=0,yearPermission=0,yearAbsent=0,yearMins=0;
       const monthly=[];
@@ -3509,7 +3541,7 @@ window.loadAdminYearlyData=async function(){
         if(mo<=lastMonth){
           const [yy,mm2]=monthStr.split('-').map(Number);
           const dayLimit=(isCurYear&&mo===lastMonth)?now.getDate():new Date(yy,mm2,0).getDate();
-          const workingDays=countWorkingDaysElapsed(yy,mm2,dayLimit,m.weekendDays);
+          const workingDays=countWorkingDaysElapsed(yy,mm2,dayLimit,m.weekendDays,startDate);
           absent=Math.max(0,workingDays-present-leaveDays);
         }
         yearPresent+=present;yearExtra+=extraDays;yearLate+=late;yearLeave+=leaveDays;yearPermission+=permissionDays;yearAbsent+=absent;yearMins+=mins;
@@ -3520,7 +3552,12 @@ window.loadAdminYearlyData=async function(){
     window._admYearlyResults=results;
     window._admYearlySelectedYear=year;
 
+    const cfgStart=toDateStr(attendanceRulesCache?.attendanceStartDate);
     tableEl.innerHTML=`
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+        🗓️ الغياب محسوب من: ${cfgStart?`<b>${cfgStart}</b>`:'<b>أول السنة</b>'}${attendanceRulesCache?.countFromUserCreatedAt===false?'':' (أو من تاريخ إنشاء حساب المدير إن كان أحدث)'}
+        ${currentProfile.role==='superadmin'?' — يمكن تغييره من ⚙️ الإعدادات':''}
+      </div>
       <div class="tbl-wrap">
         <table>
           <thead><tr><th>المدير</th><th>المشروع</th><th>إجمالي الحضور</th><th>أيام إضافية</th><th>إجمالي التأخير</th><th>إجمالي الغياب</th><th>إجمالي الإجازات</th><th>إجمالي الإذن</th><th>إجمالي الساعات</th><th></th></tr></thead>
@@ -3830,7 +3867,7 @@ window.exportAdminMonthlySimpleCSV=function(){
     const late=lateCountFn(d);
     const leaveDays=d.leaveDayRows.length;
     const permissionDays=d.permissionDayRows.length;
-    const workingDaysSoFar=countWorkingDaysElapsed(y,m,dayLimit,d.manager.weekendDays);
+    const workingDaysSoFar=countWorkingDaysElapsed(y,m,dayLimit,d.manager.weekendDays,countingStartDate(d.manager));
     const absent=Math.max(0,workingDaysSoFar-present-leaveDays);
     const hrs=hoursLabel(totalMinutes(d.attendance));
     return [d.manager.name||'—',d.manager.site||'—',present,extraDays,late,absent,leaveDays,permissionDays,hrs];
@@ -3948,6 +3985,22 @@ async function renderSettings(){
         <button id="btnSaveRules" class="btn-primary" onclick="saveAttendanceRules()">💾 حفظ قواعد الاحتساب</button>
         <div id="noticeRules" style="margin-top:10px"></div>
       </div>
+      ${currentProfile.role==='superadmin'?`
+      <div class="card" style="margin-top:16px">
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px">📅 بداية احتساب الحضور والغياب</div>
+        <div class="notice notice-info" style="margin-bottom:12px;font-size:12.5px;line-height:1.7">
+          التقارير الشهرية والسنوية لا تحتسب أي غياب قبل هذا التاريخ. اتركه فارغاً ليتم الاحتساب من أول كل سنة.
+        </div>
+        <div class="form-row">
+          <div><label class="field-label">تاريخ بدء استخدام النظام</label><input type="date" id="attendanceStartDate" value="${toDateStr(rules.attendanceStartDate)}" style="direction:ltr"/></div>
+          <div style="display:flex;align-items:center;gap:8px;padding-top:22px">
+            <input type="checkbox" id="countFromUserCreatedAt" ${rules.countFromUserCreatedAt===false?'':'checked'} style="width:auto"/>
+            <label for="countFromUserCreatedAt" style="font-size:13px;cursor:pointer">احتساب كل مدير من تاريخ إنشاء حسابه إذا كان بعد التاريخ أعلاه</label>
+          </div>
+        </div>
+        <button id="btnSaveStartDate" class="btn-primary" onclick="saveAttendanceStartDate()">💾 حفظ بداية الاحتساب</button>
+        <div id="noticeStartDate" style="margin-top:10px"></div>
+      </div>`:''}
       <div class="card" style="margin-top:16px">
         <div style="font-size:15px;font-weight:700;margin-bottom:8px">📍 التحقق العشوائي من الموقع أثناء الدوام</div>
         <div class="notice notice-warn" style="margin-bottom:12px;font-size:12.5px;line-height:1.7">
@@ -4020,7 +4073,8 @@ window.saveAttendanceRules=async function(){
     const deductAbsent=document.getElementById('deductAbsent')?.checked||false;
     const spotCheckEnabled=document.getElementById('spotCheckEnabled')?.checked||false;
     const spotCheckInterval=Math.max(15,parseInt(document.getElementById('spotCheckInterval')?.value)||60);
-    await setDoc(doc(db,'config','attendanceRules'),{maxLatePerMonth,maxAbsentPerMonth,overtimeAfter,deductAbsent,spotCheckEnabled,spotCheckInterval,updatedAt:serverTimestamp(),updatedBy:currentProfile.name});
+    await setDoc(doc(db,'config','attendanceRules'),{maxLatePerMonth,maxAbsentPerMonth,overtimeAfter,deductAbsent,spotCheckEnabled,spotCheckInterval,updatedAt:serverTimestamp(),updatedBy:currentProfile.name},{merge:true});
+    await loadAttendanceRules(true);
     await writeAudit('settings_updated',{section:'attendanceRules'});
     toast('✅ تم حفظ قواعد الاحتساب','success');
     if(noticeEl){noticeEl.innerHTML='<div class="notice notice-success">✅ تم الحفظ بنجاح</div>';setTimeout(()=>{if(noticeEl)noticeEl.innerHTML=''},3000)}
@@ -4029,6 +4083,27 @@ window.saveAttendanceRules=async function(){
     toast(msg,'danger',6000);
     if(noticeEl)noticeEl.innerHTML='<div class="notice notice-danger">'+msg+'</div>';
   }finally{if(btn){btn.disabled=false;btn.textContent='💾 حفظ قواعد الاحتساب';}}
+};
+window.saveAttendanceStartDate=async function(){
+  if(!requirePerm('settings'))return;
+  if(currentProfile.role!=='superadmin'){toast('هذا الإعداد للسوبر أدمن فقط','warn');return}
+  const noticeEl=document.getElementById('noticeStartDate');
+  const btn=document.getElementById('btnSaveStartDate');
+  const raw=document.getElementById('attendanceStartDate')?.value||'';
+  if(raw&&!/^\d{4}-\d{2}-\d{2}$/.test(raw)){toast('تاريخ غير صالح','warn');return}
+  if(btn){btn.disabled=true;btn.textContent='جارٍ الحفظ...';}
+  try{
+    const countFromUserCreatedAt=document.getElementById('countFromUserCreatedAt')?.checked||false;
+    await setDoc(doc(db,'config','attendanceRules'),{attendanceStartDate:raw,countFromUserCreatedAt,updatedAt:serverTimestamp(),updatedBy:currentProfile.name},{merge:true});
+    await loadAttendanceRules(true);
+    await writeAudit('settings_updated',{section:'attendanceStartDate'});
+    toast('✅ تم حفظ بداية الاحتساب — أعد فتح التقارير لتحديث الأرقام','success',6000);
+    if(noticeEl){noticeEl.innerHTML='<div class="notice notice-success">✅ تم الحفظ بنجاح</div>';setTimeout(()=>{if(noticeEl)noticeEl.innerHTML=''},3000)}
+  }catch(e){
+    const msg=e.code==='permission-denied'?'❌ ليس لديك صلاحية — تحقق من Firebase Rules':'❌ '+e.message;
+    toast(msg,'danger',6000);
+    if(noticeEl)noticeEl.innerHTML='<div class="notice notice-danger">'+msg+'</div>';
+  }finally{if(btn){btn.disabled=false;btn.textContent='💾 حفظ بداية الاحتساب';}}
 };
 
 /* ── OFFLINE ── */
