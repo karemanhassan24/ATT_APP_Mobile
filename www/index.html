@@ -471,7 +471,7 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, onAuthStateChanged, updatePassword }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, serverTimestamp, limit, writeBatch }
+import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, serverTimestamp, limit, writeBatch, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -496,6 +496,8 @@ function setServerStatus(state,msg){
 
 let currentUser=null, currentProfile=null, gpsCoords=null, gpsActive=false, clockTimer=null;
 let notifications=[], qrTimer=null, currentQRCode='';
+let _adminNotifUnsubscribe=null, _adminNotifInitialized=false;
+const _seenAdminNotifIds=new Set();
 
 /* ── HELPERS ── */
 function todayStr(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
@@ -889,6 +891,57 @@ function addNotification(title,body,type='info'){
   if(dot)dot.classList.remove('hidden');
   showNativeNotification(title,body);
 }
+/* Manager activity is persisted once, then streamed to both admin roles.
+   Native alerts are displayed while the admin app is running. */
+async function notifyAdmins(type,title,body,details={}){
+  if(!currentUser||currentProfile?.role!=='manager')return;
+  try{
+    await addDoc(collection(db,'notifications'),{
+      forRole:'admins',
+      recipientRoles:['superadmin','admin'],
+      type,title,body,
+      actorUid:currentUser.uid,
+      actorName:currentProfile.name||'—',
+      actorSite:currentProfile.site||'',
+      details,
+      createdAt:serverTimestamp()
+    });
+  }catch(e){console.warn('notifyAdmins failed',e)}
+}
+function startAdminActivityNotifications(){
+  if(!['superadmin','admin'].includes(currentProfile?.role))return;
+  if(_adminNotifUnsubscribe)_adminNotifUnsubscribe();
+  _adminNotifInitialized=false;
+  const q=query(collection(db,'notifications'),where('forRole','==','admins'));
+  _adminNotifUnsubscribe=onSnapshot(q,snap=>{
+    const cutoff=Date.now()-7*24*60*60*1000;
+    const added=snap.docChanges()
+      .filter(c=>c.type==='added'&&!_seenAdminNotifIds.has(c.doc.id))
+      .map(c=>({id:c.doc.id,...c.doc.data()}))
+      .filter(n=>!n.createdAt?.toMillis||n.createdAt.toMillis()>=cutoff)
+      .sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
+    for(const n of added){
+      _seenAdminNotifIds.add(n.id);
+      const time=n.createdAt?.toDate?.()||new Date();
+      notifications.unshift({
+        id:Date.now()+Math.floor(Math.random()*1000),
+        sourceId:n.id,
+        title:n.title||'نشاط مدير',
+        body:n.body||'تم تنفيذ إجراء جديد',
+        type:n.type==='check_out'?'info':n.type==='leave_request'?'warn':'success',
+        time,read:false
+      });
+      if(_adminNotifInitialized)showNativeNotification(n.title||'نشاط مدير',n.body||'تم تنفيذ إجراء جديد');
+    }
+    notifications=notifications.slice(0,50);
+    renderNotifications();
+    if(added.length)document.getElementById('notifDot')?.classList.remove('hidden');
+    _adminNotifInitialized=true;
+  },e=>{
+    console.warn('Admin notification listener failed',e);
+    toast('تعذّر تشغيل إشعارات نشاط المديرين — تحقق من صلاحيات Firestore','warn',7000);
+  });
+}
 function renderNotifications(){
   const el=document.getElementById('notifList');if(!el)return;
   const unread=notifications.filter(n=>!n.read).length;
@@ -972,25 +1025,53 @@ async function webViewGPS(applyPos,msgs){
 async function getGPSPromise(){
   const msgs={1:'تم رفض إذن الموقع — افتح إعدادات التطبيق وفعّل الموقع',2:'تعذّر تحديد الموقع — تأكد أن GPS مفعّل على الهاتف',3:'انتهت مهلة تحديد الموقع'};
   const applyPos=pos=>{
-    gpsCoords={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
+    const coords=pos?.coords;
+    const lat=Number(coords?.latitude);
+    const lng=Number(coords?.longitude);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng))throw new Error('تعذّر تحديد الموقع — تأكد أن GPS مفعّل على الهاتف');
+    gpsCoords={lat,lng,acc:Number(coords?.accuracy||0),at:Date.now()};
     gpsActive=true;updateGPSUI();return gpsCoords;
   };
-  if(isCapacitorNative()){
-    try{
-      const pos=await capacitorGPS();
-      return applyPos(pos);
-    }catch(e1){
+  try{
+    if(isCapacitorNative()){
       try{
-        return await webViewGPS(applyPos,msgs);
-      }catch(e2){
-        gpsActive=false;
-        throw new Error(e2?.message||e1?.message||'خطأ GPS');
+        const pos=await capacitorGPS();
+        return applyPos(pos);
+      }catch(e1){
+        try{
+          return await webViewGPS(applyPos,msgs);
+        }catch(e2){
+          throw new Error(e2?.message||e1?.message||'خطأ GPS');
+        }
       }
     }
+    return await webViewGPS(applyPos,msgs);
+  }catch(e){
+    gpsActive=false;
+    gpsCoords=null;
+    updateGPSUI();
+    throw e;
   }
-  return webViewGPS(applyPos,msgs);
 }
 window.getGPS=async()=>{await window.enableLocationPermission()}
+const FRESH_GPS_MAX_AGE_MS=15000;
+async function requireFreshGPS(actionLabel){
+  const lbl=document.getElementById('gpsLabel');
+  if(lbl)lbl.textContent='⏳ جارٍ التحقق من الموقع الحالي...';
+  try{
+    const allowed=await requestLocationPermission();
+    if(!allowed)throw new Error('الموقع غير مفعّل — لا يمكن '+actionLabel+' بدون GPS');
+    const coords=await getGPSPromise();
+    if(!coords||!Number.isFinite(coords.lat)||!Number.isFinite(coords.lng))throw new Error('تعذّر تحديد الموقع الحالي');
+    if(coords.at&&Date.now()-coords.at>FRESH_GPS_MAX_AGE_MS)throw new Error('قراءة الموقع قديمة — فعّل GPS وحاول مرة أخرى');
+    return coords;
+  }catch(e){
+    gpsActive=false;
+    gpsCoords=null;
+    updateGPSUI();
+    throw new Error(e.message||'الموقع غير مفعّل — لا يمكن '+actionLabel+' بدون GPS');
+  }
+}
 
 // Auto-GPS only after permission is granted
 async function autoStartGPS(){
@@ -1039,8 +1120,14 @@ function updateGPSUI(){
   const permBanner=document.getElementById('gpsPermissionBanner');
   if(enableBtn)enableBtn.style.display=gpsActive?'none':'';
   if(permBanner)permBanner.classList.toggle('hidden',!!gpsActive);
-  if(coords&&gpsCoords)coords.innerHTML=`<span>خط العرض: <b>${gpsCoords.lat.toFixed(6)}</b></span><span>خط الطول: <b>${gpsCoords.lng.toFixed(6)}</b></span>`;
-  if(map&&gpsCoords)map.innerHTML=`<iframe referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${gpsCoords.lat},${gpsCoords.lng}&z=17&output=embed" title="موقعك" loading="lazy"></iframe>`;
+  if(coords){
+    if(gpsCoords)coords.innerHTML=`<span>خط العرض: <b>${gpsCoords.lat.toFixed(6)}</b></span><span>خط الطول: <b>${gpsCoords.lng.toFixed(6)}</b></span>`;
+    else coords.innerHTML='<span style="color:var(--text3)">الموقع غير محدد بعد...</span>';
+  }
+  if(map){
+    if(gpsCoords)map.innerHTML=`<iframe referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${gpsCoords.lat},${gpsCoords.lng}&z=17&output=embed" title="موقعك" loading="lazy"></iframe>`;
+    else map.innerHTML='<span>اضغط "تفعيل الموقع" لعرض الخريطة</span>';
+  }
   // fetch address
   if(gpsActive&&gpsCoords){
     const addrEl=document.getElementById('gpsAddressBox');
@@ -1064,6 +1151,8 @@ function updateGPSUI(){
     }else{
       rangeBox.innerHTML='';
     }
+  }else if(rangeBox){
+    rangeBox.innerHTML='<div style="font-size:12px;padding:8px 12px;border-radius:var(--r);background:var(--danger-bg);color:var(--danger);border:1px solid #fecaca">📍 الموقع غير مفعّل — لا يمكن تسجيل الحضور أو الانصراف بدون GPS</div>';
   }
 }
 
@@ -1134,7 +1223,18 @@ async function runSpotCheck(){
       addNotification('⚠️ تنبيه موقع',msg,'warn');
       toast(`⚠️ تنبيه موقع: ${msg}`,'warn',6000);
     }
-  }catch(e){/* silent — GPS may be unavailable, do not disturb the user */}
+  }catch(e){
+    try{
+      const today=todayStr();
+      const ref=doc(db,`attendance/${currentUser.uid}/records/${today}`);
+      const snap=await getDoc(ref);
+      if(!snap.exists())return;
+      const data=snap.data();
+      if(!data.checkIn||data.checkOut)return;
+      const failed={time:new Date().toLocaleTimeString('ar-EG',{hour12:false}),failed:true,reason:e.message||'GPS unavailable'};
+      await updateDoc(ref,{spotChecks:[...(data.spotChecks||[]),failed]});
+    }catch(_){/* silent */}
+  }
 }
 
 /* ── QR CODE ── */
@@ -1236,6 +1336,12 @@ async function checkDeviceBinding(uid){
     });
     currentProfile.lastDeviceId=thisDevice;
     currentProfile.lastDeviceLabel=label;
+    await notifyAdmins(
+      'manager_login',
+      '🔐 دخول مدير',
+      `${currentProfile.name} سجّل الدخول إلى التطبيق — ${currentProfile.site||'بدون مشروع'}`,
+      {device:label}
+    );
   }catch(e){console.warn('checkDeviceBinding error:',e)}
 }
 
@@ -1280,7 +1386,14 @@ async function doLogin(){
   }
 }
 function showErr(msg){document.getElementById('loginErrMsg').textContent=msg;document.getElementById('loginErr').classList.remove('hidden')}
-async function doLogout(){if(clockTimer)clearInterval(clockTimer);if(qrTimer)clearInterval(qrTimer);stopSpotCheck();gpsActive=false;gpsCoords=null;notifications=[];await signOut(auth)}
+async function doLogout(){
+  if(clockTimer)clearInterval(clockTimer);
+  if(qrTimer)clearInterval(qrTimer);
+  if(_adminNotifUnsubscribe){_adminNotifUnsubscribe();_adminNotifUnsubscribe=null}
+  _adminNotifInitialized=false;_seenAdminNotifIds.clear();
+  stopSpotCheck();gpsActive=false;gpsCoords=null;notifications=[];
+  await signOut(auth);
+}
 window.doLogin=doLogin;window.doLogout=doLogout;
 
 function showLoginPage(){
@@ -1302,6 +1415,7 @@ function initApp(){
   if(['superadmin','admin'].includes(currentProfile.role))renderSuperAdminPage();
   else renderManagerPage();
   initNativeNotifications().then(()=>{
+    startAdminActivityNotifications();
     checkLeaveAlerts();
     if(hasPerm('users'))checkDeviceChangeAlerts();
   });
@@ -1441,7 +1555,7 @@ function renderAttTab(rec){
     </div>
     <div class="gps-block">
       <div id="gpsPermissionBanner" class="${gpsActive?'hidden':''}" style="background:var(--warn-bg);border:1px solid #fed7aa;border-radius:var(--r);padding:12px;margin-bottom:12px;font-size:13px;color:var(--warn)">
-        📍 يحتاج التطبيق إذن الموقع لتسجيل الحضور. اضغط الزر بالأسفل واختر <b>السماح</b> عند ظهور رسالة النظام.
+        📍 يحتاج التطبيق إذن الموقع لتسجيل الحضور والانصراف. لو الموقع اتقفل، البصمة هتتمنع حتى يتم تفعيله مرة أخرى.
       </div>
       <div class="gps-header">
         <div class="gps-status"><div class="gps-dot ${gpsActive?'active':'inactive'}" id="gpsDot"></div><span style="font-size:13px" id="gpsLabel">${gpsActive?`✅ تم تحديد موقعك (دقة: ${gpsCoords?.acc?.toFixed(0)}م)`:'لم يتم تحديد موقعك — اضغط تفعيل الموقع'}</span></div>
@@ -1500,26 +1614,29 @@ function renderExtraVisitsBlock(rec){
 }
 
 window.doExtraVisitCheckIn=async function(){
-  if(!gpsActive||!gpsCoords){toast('يرجى تحديد موقعك أولاً','warn');return}
+  const coords=await requireFreshGPS('تسجيل دخول الموقع الآخر').catch(e=>{toast(e.message,'danger',7000);return null});
+  if(!coords)return;
   const today=todayStr();const now=nowStr();
-  const address=await getAddress(gpsCoords.lat,gpsCoords.lng);
+  const address=await getAddress(coords.lat,coords.lng);
   try{
     const ref=doc(db,`attendance/${currentUser.uid}/records/${today}`);
     const snap=await getDoc(ref);
     const data=snap.exists()?snap.data():{date:today,uid:currentUser.uid};
     const extraVisits=data.extraVisits||[];
-    extraVisits.push({checkIn:now,checkOut:null,inLat:gpsCoords.lat,inLng:gpsCoords.lng,address,note:'زيارة مشروع آخر'});
+    extraVisits.push({checkIn:now,checkOut:null,inLat:coords.lat,inLng:coords.lng,address,note:'زيارة مشروع آخر'});
     await setDoc(ref,{...data,extraVisits,date:today,uid:currentUser.uid,updatedAt:serverTimestamp()},{merge:true});
     await writeAudit('extra_visit_check_in',{date:today,time:now,address});
+    await notifyAdmins('extra_visit_check_in','📍 بدء زيارة مشروع',`${currentProfile.name} بدأ زيارة مشروع آخر الساعة ${now}`,{date:today,time:now});
     toast('✅ تم تسجيل دخولك لموقع آخر','success');
     const newRec=await getTodayRecord(currentUser.uid);renderAttTab(newRec);
   }catch(e){toast('حدث خطأ: '+e.message,'danger')}
 };
 
 window.doExtraVisitCheckOut=async function(){
-  if(!gpsActive||!gpsCoords){toast('يرجى تحديد موقعك أولاً','warn');return}
+  const coords=await requireFreshGPS('تسجيل خروج الموقع الآخر').catch(e=>{toast(e.message,'danger',7000);return null});
+  if(!coords)return;
   const today=todayStr();const now=nowStr();
-  const address=await getAddress(gpsCoords.lat,gpsCoords.lng);
+  const address=await getAddress(coords.lat,coords.lng);
   try{
     const ref=doc(db,`attendance/${currentUser.uid}/records/${today}`);
     const snap=await getDoc(ref);
@@ -1533,9 +1650,10 @@ window.doExtraVisitCheckOut=async function(){
     const [oh,om]=now.split(':').map(Number);
     const totalMins=Math.max(0,(oh*60+om)-(ih*60+im));
     const wh=Math.floor(totalMins/60);const wm=totalMins%60;
-    extraVisits[idx]={...v,checkOut:now,outLat:gpsCoords.lat,outLng:gpsCoords.lng,outAddress:address,workHours:wm>0?`${wh}:${String(wm).padStart(2,'0')}`:`${wh}:00`};
+    extraVisits[idx]={...v,checkOut:now,outLat:coords.lat,outLng:coords.lng,outAddress:address,workHours:wm>0?`${wh}:${String(wm).padStart(2,'0')}`:`${wh}:00`};
     await updateDoc(ref,{extraVisits,updatedAt:serverTimestamp()});
     await writeAudit('extra_visit_check_out',{date:today,time:now,address});
+    await notifyAdmins('extra_visit_check_out','📍 انتهاء زيارة مشروع',`${currentProfile.name} أنهى زيارة المشروع الآخر الساعة ${now}`,{date:today,time:now});
     toast('✅ تم تسجيل خروجك من الموقع الآخر','success');
     const newRec=await getTodayRecord(currentUser.uid);renderAttTab(newRec);
   }catch(e){toast('حدث خطأ: '+e.message,'danger')}
@@ -1590,14 +1708,15 @@ async function getTodayRecord(uid){
 }
 
 window.doCheckIn=async function(){
-  if(!gpsActive||!gpsCoords){toast('يرجى تحديد موقعك أولاً','warn');return}
+  const coords=await requireFreshGPS('تسجيل الحضور').catch(e=>{toast(e.message,'danger',7000);return null});
+  if(!coords)return;
   const profile=currentProfile;
   let workDistance=null;
   let workRadius=Number(profile.workRadius||300);
   let isOutsideWorkRange=false;
   let rangeNote='داخل نطاق العمل';
   if(profile.workLat&&profile.workLng){
-    workDistance=haversine(gpsCoords.lat,gpsCoords.lng,profile.workLat,profile.workLng);
+    workDistance=haversine(coords.lat,coords.lng,profile.workLat,profile.workLng);
     isOutsideWorkRange=workDistance>workRadius;
     rangeNote=isOutsideWorkRange?`خارج نطاق العمل (${Math.round(workDistance)} متر من الموقع)`:`داخل نطاق العمل (${Math.round(workDistance)} متر)`;
     if(isOutsideWorkRange)toast(rangeNote,'warn',5000);
@@ -1617,15 +1736,22 @@ window.doCheckIn=async function(){
     diffMins=(nh*60+nm)-(sh*60+sm);
     isLate=diffMins>numOr(schedule.lateThreshold,15);
   }
-  const address=await getAddress(gpsCoords.lat,gpsCoords.lng);
+  const address=await getAddress(coords.lat,coords.lng);
   try{
     await setDoc(doc(db,`attendance/${currentUser.uid}/records/${today}`),{
-      checkIn:now,checkOut:null,inLat:gpsCoords.lat,inLng:gpsCoords.lng,inAddress:address,
+      checkIn:now,checkOut:null,inLat:coords.lat,inLng:coords.lng,inAddress:address,
       workDistance:workDistance===null?null:Math.round(workDistance),workRadius,locationStatus:rangeNote,outsideWorkRange:isOutsideWorkRange,
       status:isFlexible||isExtraDay?'checkedin':isLate?'late':'checkedin',date:today,uid:currentUser.uid,lateMinutes:isFlexible||isExtraDay?0:isLate?diffMins:0,
       extraDay:isExtraDay,weekendWork:isExtraDay,updatedAt:serverTimestamp()
     });
     await writeAudit('check_in',{date:today,time:now,address,late:isLate,flexible:isFlexible,extraDay:isExtraDay,locationStatus:rangeNote});
+    const checkInState=isExtraDay?' في يوم راحة (يوم إضافي)':isLate?` متأخراً ${diffMins} دقيقة`:'';
+    await notifyAdmins(
+      'check_in',
+      '✅ تسجيل حضور',
+      `${currentProfile.name} سجّل الحضور الساعة ${now}${checkInState} — ${rangeNote}`,
+      {date:today,time:now,lateMinutes:isLate?diffMins:0,extraDay:isExtraDay,outsideWorkRange:isOutsideWorkRange}
+    );
     if(isExtraDay){
       showCheckinConfirm('in',now,`<br><span style="color:#7c3aed">⭐ يوم إضافي — دوام في يوم راحة</span><br><span style="color:${isOutsideWorkRange?'var(--warn)':'var(--success)'}">📍 ${rangeNote}</span>`);
       addNotification('يوم إضافي','تم تسجيل الحضور في يوم راحة وسيُحسب يوماً إضافياً في التقارير','info');
@@ -1642,7 +1768,8 @@ window.doCheckIn=async function(){
 };
 
 window.doCheckOut=async function(){
-  if(!gpsActive||!gpsCoords){toast('يرجى تحديد موقعك أولاً','warn');return}
+  const coords=await requireFreshGPS('تسجيل الانصراف').catch(e=>{toast(e.message,'danger',7000);return null});
+  if(!coords)return;
   const today=todayStr();const now=nowStr();
   const rec=await getTodayRecord(currentUser.uid);
   let workHours='';let workMinutesTotal=0;
@@ -1654,14 +1781,20 @@ window.doCheckOut=async function(){
     const wh=Math.floor(workMinutesTotal/60);const wm=workMinutesTotal%60;
     workHours=wm>0?`${wh}:${String(wm).padStart(2,'0')}`:`${wh}:00`;
   }
-  const address=await getAddress(gpsCoords.lat,gpsCoords.lng);
+  const address=await getAddress(coords.lat,coords.lng);
   const extraDay=!!(rec?.extraDay||rec?.weekendWork||(currentProfile.role==='manager'&&isWeekendDow(new Date().getDay(),currentProfile.weekendDays)));
   try{
     await updateDoc(doc(db,`attendance/${currentUser.uid}/records/${today}`),{
-      checkOut:now,outLat:gpsCoords.lat,outLng:gpsCoords.lng,outAddress:address,status:'present',workHours,
+      checkOut:now,outLat:coords.lat,outLng:coords.lng,outAddress:address,status:'present',workHours,
       extraDay,weekendWork:extraDay,updatedAt:serverTimestamp()
     });
     await writeAudit('check_out',{date:today,time:now,workHours,extraDay});
+    await notifyAdmins(
+      'check_out',
+      '🚪 تسجيل انصراف',
+      `${currentProfile.name} سجّل الانصراف الساعة ${now} — إجمالي العمل ${workHours||'0:00'}`,
+      {date:today,time:now,workHours,extraDay}
+    );
     const wh=Math.floor(workMinutesTotal/60);const wm=workMinutesTotal%60;
     const hoursLabel=wm>0?`${wh} ساعة و${wm} دقيقة`:`${wh} ساعة`;
     showCheckinConfirm('out',now,`<br>إجمالي العمل: <b>${hoursLabel}</b>${extraDay?'<br><span style="color:#7c3aed">⭐ يوم إضافي</span>':''}`);
@@ -1834,6 +1967,12 @@ window.submitLeave=async function(){
       from,to,reason,type,document:document_,status:'pending',applied:todayStr(),createdAt:serverTimestamp()
     });
     await writeAudit('leave_request',{from,to,type,reason});
+    await notifyAdmins(
+      'leave_request',
+      '🏖️ طلب إجازة جديد',
+      `${currentProfile.name} أرسل طلب ${leaveTypeName(type)} من ${from} إلى ${to}`,
+      {from,to,type}
+    );
     noticeEl.innerHTML='<div class="notice notice-success">✅ تم تقديم الطلب بنجاح</div>';
     toast('تم تقديم طلب الإجازة بنجاح','success');
     setTimeout(()=>renderLeaveTab(),1500);
@@ -1843,7 +1982,16 @@ window.submitLeave=async function(){
 window.cancelLeave=async function(id){
   if(!confirm('هل تريد إلغاء طلب الإجازة هذا؟'))return;
   try{
+    const leaveSnap=await getDoc(doc(db,'leaves',id));
+    const leave=leaveSnap.exists()?leaveSnap.data():{};
     await updateDoc(doc(db,'leaves',id),{status:'cancelled',cancelledAt:serverTimestamp()});
+    await writeAudit('leave_cancelled',{leaveId:id,from:leave.from||'',to:leave.to||'',type:leave.type||''});
+    await notifyAdmins(
+      'leave_cancelled',
+      '❌ إلغاء طلب إجازة',
+      `${currentProfile.name} ألغى طلب ${leaveTypeName(leave.type||'')} ${leave.from?`من ${leave.from} إلى ${leave.to}`:''}`,
+      {leaveId:id,from:leave.from||'',to:leave.to||'',type:leave.type||''}
+    );
     toast('تم إلغاء طلب الإجازة','warn');renderLeaveTab();
   }catch(e){toast('خطأ: '+e.message,'danger')}
 };
