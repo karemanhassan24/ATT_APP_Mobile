@@ -729,12 +729,90 @@ function countPermissionUsed(leaves,month){
   return leaves.filter(l=>l.type==='permission'&&l.status==='approved'&&(l.from||'').slice(0,7)===m).length;
 }
 function excelCell(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function downloadExcelHtml(filename,html){
+/* حفظ الملفات: المتصفح ينزّل مباشرة، وفي التطبيق نكتب الملف ثم نفتح قائمة الفتح/المشاركة */
+function blobToBase64(blob){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onerror=()=>rej(new Error('تعذّر قراءة الملف'));
+    fr.onload=()=>res(String(fr.result).split(',')[1]||'');
+    fr.readAsDataURL(blob);
+  });
+}
+function pluginAvailable(name){
+  try{return !!(window.Capacitor&&typeof window.Capacitor.isPluginAvailable==='function'&&window.Capacitor.isPluginAvailable(name))}catch(e){return false}
+}
+let lastSavedFile=null;
+async function saveFile(filename,blob){
+  const name=filename.replace(/[\\/:*?"<>|]/g,'_');
+  if(!isCapacitorNative()){
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=name;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    return;
+  }
+  if(!pluginAvailable('Filesystem'))throw new Error('هذا الإصدار من التطبيق لا يدعم حفظ الملفات — ثبّت آخر إصدار من التطبيق');
+  const data=await blobToBase64(blob);
+  let uri;
+  try{
+    ({uri}=await capCall('Filesystem','writeFile',{path:name,data,directory:'DOCUMENTS',recursive:true}));
+  }catch(e){
+    ({uri}=await capCall('Filesystem','writeFile',{path:name,data,directory:'CACHE',recursive:true}));
+  }
+  lastSavedFile={name,uri};
+  await shareSavedFile(name,uri);
+}
+/* ملفات التطبيق تُحفظ في مجلد خاص لا يظهر في مدير الملفات، لذا نفتح قائمة الفتح/المشاركة */
+async function shareSavedFile(name,uri,showFallback=true){
+  if(pluginAvailable('Share')){
+    for(const payload of [{files:[uri]},{url:uri}]){
+      try{
+        await capCall('Share','share',{title:name,dialogTitle:'فتح أو حفظ التقرير',...payload});
+        return true;
+      }catch(e){
+        if(/cancel/i.test(e?.message||''))return true;
+      }
+    }
+  }
+  if(showFallback)showSavedFileModal(name,uri);
+  return false;
+}
+function showSavedFileModal(name,uri){
+  openModal(`<h2>📄 تم حفظ الملف</h2>
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">${name}</div>
+    <div style="font-size:11px;color:var(--text2);word-break:break-all;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:10px">${uri}</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:10px">اضغط "فتح / مشاركة" لحفظ الملف في مكان تختاره أو إرساله.</div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal()">إغلاق</button>
+      <button class="btn-primary" onclick="retryShareSavedFile()">📤 فتح / مشاركة</button>
+    </div>`);
+}
+window.retryShareSavedFile=async function(){
+  if(!lastSavedFile){closeModal();return}
+  closeModal();
+  const ok=await shareSavedFile(lastSavedFile.name,lastSavedFile.uri,false);
+  if(!ok)toast('تعذّر فتح قائمة المشاركة — حدّث التطبيق لآخر إصدار','warn',7000);
+};
+/* مكتبات PDF تُحمَّل من الإنترنت — نعيد المحاولة عند الحاجة */
+function loadScriptOnce(src){
+  return new Promise((res,rej)=>{
+    const existing=document.querySelector(`script[data-src="${src}"]`);
+    if(existing){existing.addEventListener('load',()=>res());existing.addEventListener('error',()=>rej(new Error('تعذّر تحميل مكتبة PDF')));return}
+    const s=document.createElement('script');
+    s.src=src;s.dataset.src=src;
+    s.onload=()=>res();
+    s.onerror=()=>rej(new Error('تعذّر تحميل مكتبة PDF'));
+    document.head.appendChild(s);
+  });
+}
+async function ensurePdfLibs(){
+  if(!window.html2canvas)await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+  if(!window.jspdf)await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  if(!window.html2canvas||!window.jspdf)throw new Error('مكتبة PDF غير متاحة — تأكد من الاتصال بالإنترنت');
+}
+async function downloadExcelHtml(filename,html){
   const full=`<html><head><meta charset="UTF-8"><style>table{border-collapse:collapse;font-family:Arial}th,td{border:1px solid #999;padding:6px;text-align:right}th{background:#e8ecf5;font-weight:bold}.title{font-size:18px;font-weight:bold;margin:12px 0}.sub{color:#555;margin-bottom:10px}</style></head><body dir="rtl">${html}</body></html>`;
   const blob=new Blob(['\ufeff'+full],{type:'application/vnd.ms-excel;charset=utf-8;'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download=filename.endsWith('.xls')?filename:filename+'.xls';a.click();
-  URL.revokeObjectURL(url);
+  await saveFile(filename.endsWith('.xls')?filename:filename+'.xls',blob);
 }
 function rowsToHtmlTable(headers,rows){
   return `<table><thead><tr>${headers.map(h=>`<th>${excelCell(h)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${excelCell(c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${headers.length}">لا توجد بيانات</td></tr>`}</tbody></table>`;
@@ -843,7 +921,7 @@ async function capCall(plugin,method,options={}){
   if(typeof cap.nativePromise==='function')return cap.nativePromise(plugin,method,options);
   const p=cap.Plugins?.[plugin];
   if(p&&typeof p[method]==='function')return p[method](options);
-  throw new Error('تعذّر الاتصال بنظام الموقع في التطبيق');
+  throw new Error(`تعذّر الاتصال بـ ${plugin} داخل التطبيق — حدّث التطبيق لآخر إصدار`);
 }
 async function requestLocationPermission(){
   if(!isCapacitorNative())return true;
@@ -1930,7 +2008,7 @@ window.exportManagerExcel=async function(){
       <div class="title">سجل الحضور والانصراف</div>${rowsToHtmlTable(['اليوم','التاريخ','وقت الدخول','وقت الخروج','ساعات العمل','التأخير بالدقائق','عنوان الدخول','الحالة'],att)}
       <br><div class="title">تواريخ الإجازات المعتمدة خلال الشهر</div>${rowsToHtmlTable(['اليوم','تاريخ الإجازة','من','إلى','النوع','السبب','الموافق'],leaves)}
       <br><div class="title">تواريخ إذن التأخير/المأمورية المعتمدة خلال الشهر</div>${rowsToHtmlTable(['اليوم','التاريخ','السبب','الموافق'],permissions)}`;
-    downloadExcelHtml(`تقرير_شخصي_${currentProfile.name}_${month}.xls`,html);
+    await downloadExcelHtml(`تقرير_شخصي_${currentProfile.name}_${month}.xls`,html);
     toast('✅ تم تصدير التقرير Excel بنجاح','success');
   }catch(e){toast('خطأ في التصدير: '+e.message,'danger')}
 };
@@ -2218,16 +2296,16 @@ window.filterAttendance=function(){
   });
 };
 
-window.exportAttendanceCSV=function(){
+window.exportAttendanceCSV=async function(){
   const records=window._attRecords||[];
   if(!records.length){toast('لا توجد بيانات للتصدير','warn');return}
   const header=['المدير','المشروع','التاريخ','وقت الدخول','وقت الخروج','ساعات العمل','موقع الدخول','الحالة'];
   const rows=records.map(r=>[r.managerName||'',r.site||'',r.date||'',r.checkIn||'',r.checkOut||'',r.workHours||'',r.inAddress||'',r.status||'']);
   const csv='\uFEFF'+[header,...rows].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download=`attendance_${todayStr()}.csv`;a.click();
-  URL.revokeObjectURL(url);toast('تم تصدير الملف بنجاح','success');
+  try{
+    await saveFile(`attendance_${todayStr()}.csv`,new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+    toast('تم تصدير الملف بنجاح','success');
+  }catch(e){toast('خطأ في التصدير: '+e.message,'danger',6000)}
 };
 
 /* ── FILTER USERS TABLE ── */
@@ -3610,7 +3688,7 @@ window.toggleYearlyDetail=function(i){
   document.getElementById(`yearlyDetail${i}`)?.classList.toggle('hidden');
 };
 
-window.exportAdminYearlyExcel=function(){
+window.exportAdminYearlyExcel=async function(){
   const results=window._admYearlyResults||[];
   const year=window._admYearlySelectedYear||'';
   if(!results.length){toast('لا توجد بيانات','warn');return}
@@ -3646,8 +3724,10 @@ window.exportAdminYearlyExcel=function(){
     <table><thead><tr><th>الشهر</th><th>حضور</th><th>إضافي</th><th>تأخير</th><th>غياب</th><th>إجازة</th><th>إذن</th><th>ساعات</th></tr></thead>
     <tbody>${r.monthly.map(mm=>`<tr><td>${monthNames[mm.mo-1]}</td><td>${mm.present}</td><td>${mm.extraDays||0}</td><td>${mm.late}</td><td>${mm.absent}</td><td>${mm.leaveDays}</td><td>${mm.permissionDays}</td><td>${hoursLabel(mm.mins)}</td></tr>`).join('')}</tbody></table>`;
   });
-  downloadExcelHtml(`الملخص_السنوي_${year}.xls`,html);
-  toast('✅ تم تصدير الملخص السنوي','success');
+  try{
+    await downloadExcelHtml(`الملخص_السنوي_${year}.xls`,html);
+    toast('✅ تم تصدير الملخص السنوي','success');
+  }catch(e){toast('خطأ في التصدير: '+e.message,'danger',6000)}
 };
 
 
@@ -3785,7 +3865,7 @@ const DETAILED_REPORT_CSS=`
   .footer{text-align:center;font-size:10px;color:#777;margin-top:18px;border-top:1px solid #ddd;padding-top:8px}
 `;
 
-window.exportAdminMonthlyDetailedExcel=function(){
+window.exportAdminMonthlyDetailedExcel=async function(){
   const details=window._admMonthlyDetailsFiltered||window._admMonthlyDetails||[];
   const month=document.getElementById('admReportMonth')?.value||'';
   if(!details.length){toast('لا توجد بيانات','warn');return}
@@ -3793,16 +3873,18 @@ window.exportAdminMonthlyDetailedExcel=function(){
   const html=`<style>${DETAILED_REPORT_CSS}</style>${body}`;
   const filterVal=document.getElementById('admReportManagerFilter')?.value||'all';
   const suffix=filterVal==='all'?'كل_المديرين':(details[0]?.manager?.name?.replace(/\s+/g,'_')||'مدير');
-  downloadExcelHtml(`التقرير_الشهري_التفصيلي_${month}_${suffix}.xls`,html);
-  toast('✅ تم تصدير التقرير التفصيلي الكامل','success');
+  try{
+    await downloadExcelHtml(`التقرير_الشهري_التفصيلي_${month}_${suffix}.xls`,html);
+    toast('✅ تم تصدير التقرير التفصيلي الكامل','success');
+  }catch(e){toast('خطأ في التصدير: '+e.message,'danger',6000)}
 };
 
 /* ── DETAILED MONTHLY EXPORT — PDF ── */
+const MAX_CANVAS_HEIGHT=12000;
 window.exportAdminMonthlyDetailedPDF=async function(){
   const details=window._admMonthlyDetailsFiltered||window._admMonthlyDetails||[];
   const month=document.getElementById('admReportMonth')?.value||'';
   if(!details.length){toast('لا توجد بيانات','warn');return}
-  if(!window.jspdf||!window.html2canvas){toast('تعذّر تحميل مكتبة PDF — تحقق من الاتصال بالإنترنت','danger');return}
   toast('⏳ جارٍ إعداد ملف PDF...','info');
   const {body}=buildDetailedReportHtml(details,month);
   const wrapper=document.createElement('div');
@@ -3810,8 +3892,12 @@ window.exportAdminMonthlyDetailedPDF=async function(){
   wrapper.innerHTML=`<style>${DETAILED_REPORT_CSS} body{margin:0} .title{font-size:22px}</style><div style="padding:20px">${body}</div>`;
   document.body.appendChild(wrapper);
   try{
+    await ensurePdfLibs();
     await new Promise(r=>setTimeout(r,80));
-    const canvas=await html2canvas(wrapper,{scale:2,useCORS:true,backgroundColor:'#ffffff'});
+    // أجهزة الموبايل لا تتحمل كانفس ضخم — نقلّل الدقة مع طول التقرير
+    const scale=Math.min(2,Math.max(0.8,MAX_CANVAS_HEIGHT/Math.max(wrapper.scrollHeight||1,1)));
+    const canvas=await html2canvas(wrapper,{scale,useCORS:true,backgroundColor:'#ffffff'});
+    if(!canvas.width||!canvas.height)throw new Error('التقرير كبير جداً — صفّي على مدير واحد ثم صدّر');
     const {jsPDF}=window.jspdf;
     const pdf=new jsPDF('p','mm','a4');
     const pageW=pdf.internal.pageSize.getWidth();
@@ -3831,17 +3917,17 @@ window.exportAdminMonthlyDetailedPDF=async function(){
     }
     const filterVal=document.getElementById('admReportManagerFilter')?.value||'all';
     const suffix=filterVal==='all'?'كل_المديرين':(details[0]?.manager?.name?.replace(/\s+/g,'_')||'مدير');
-    pdf.save(`التقرير_الشهري_التفصيلي_${month}_${suffix}.pdf`);
+    await saveFile(`التقرير_الشهري_التفصيلي_${month}_${suffix}.pdf`,pdf.output('blob'));
     toast('✅ تم تصدير التقرير PDF بنجاح','success');
   }catch(e){
-    toast('خطأ في إنشاء PDF: '+e.message,'danger');
+    toast('خطأ في إنشاء PDF: '+(e?.message||e),'danger',8000);
   }finally{
     document.body.removeChild(wrapper);
   }
 };
 
 /* ── SIMPLE MONTHLY EXPORT (الشكل الأساسي) ── */
-window.exportAdminMonthlySimpleCSV=function(){
+window.exportAdminMonthlySimpleCSV=async function(){
   const details=window._admMonthlyDetailsFiltered||window._admMonthlyDetails||[];
   const month=document.getElementById('admReportMonth')?.value||'';
   if(!details.length){toast('لا توجد بيانات','warn');return}
@@ -3883,11 +3969,10 @@ window.exportAdminMonthlySimpleCSV=function(){
   const totalRow=['الإجمالي','—',totalPresent,totalExtra,totalLate,totalAbsent,totalLeave,totalPermission,hoursLabel(totalHrsVal)];
 
   const csv='\uFEFF'+[header,...rows,totalRow].map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download=`تقرير_شهري_${month}.csv`;a.click();
-  URL.revokeObjectURL(url);
-  toast('✅ تم تصدير التقرير المبسط','success');
+  try{
+    await saveFile(`تقرير_شهري_${month}.csv`,new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+    toast('✅ تم تصدير التقرير المبسط','success');
+  }catch(e){toast('خطأ في التصدير: '+e.message,'danger',6000)}
 };
 
 
