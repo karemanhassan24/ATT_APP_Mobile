@@ -63,7 +63,97 @@ workflows:
           grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
           echo "Location permissions verified in AndroidManifest.xml"
       - name: Patch status bar spacing (no full screen under system bars)
-        script: bash scripts/patch-android-statusbar.sh android
+        script: |
+          python3 <<'PY'
+          import glob
+          import os
+          import re
+
+          values = "android/app/src/main/res/values"
+          colors_path = os.path.join(values, "colors.xml")
+          styles_path = os.path.join(values, "styles.xml")
+
+          if os.path.exists(colors_path):
+              with open(colors_path, encoding="utf-8") as f:
+                  colors = f.read()
+          else:
+              colors = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+          if 'name="statusBarColor"' not in colors:
+              colors = colors.replace("</resources>", '    <color name="statusBarColor">#FFFFFF</color>\n</resources>', 1)
+              with open(colors_path, "w", encoding="utf-8") as f:
+                  f.write(colors)
+              print("Added statusBarColor to colors.xml")
+          else:
+              print("colors.xml already has statusBarColor")
+
+          with open(styles_path, encoding="utf-8") as f:
+              styles = f.read()
+
+          items = [
+              ("android:windowFullscreen", '<item name="android:windowFullscreen">false</item>'),
+              ("android:statusBarColor", '<item name="android:statusBarColor">@color/statusBarColor</item>'),
+              ("android:navigationBarColor", '<item name="android:navigationBarColor">@color/statusBarColor</item>'),
+              ("android:windowLightStatusBar", '<item name="android:windowLightStatusBar">true</item>'),
+              ("android:fitsSystemWindows", '<item name="android:fitsSystemWindows">true</item>'),
+              ("android:windowOptOutEdgeToEdgeEnforcement", '<item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>'),
+          ]
+
+          match = re.search(r'(<style\s+name="AppTheme\.NoActionBar"[^>]*>)(.*?)(</style>)', styles, re.DOTALL)
+          if not match:
+              raise SystemExit("AppTheme.NoActionBar style not found in styles.xml")
+
+          head, body, tail = match.group(1), match.group(2), match.group(3)
+          for attr, item in items:
+              if attr not in body:
+                  body = body.rstrip() + "\n        " + item + "\n    "
+          styles = styles[: match.start()] + head + body + tail + styles[match.end():]
+          with open(styles_path, "w", encoding="utf-8") as f:
+              f.write(styles)
+          print("styles.xml patched for status bar spacing")
+
+          mains = glob.glob("android/app/src/main/java/**/MainActivity.java", recursive=True)
+          if not mains:
+              print("MainActivity.java not found - skipping runtime inset patch")
+              raise SystemExit(0)
+
+          main_path = mains[0]
+          with open(main_path, encoding="utf-8") as f:
+              source = f.read()
+          if "setDecorFitsSystemWindows" in source:
+              print("MainActivity.java already applies system window insets")
+              raise SystemExit(0)
+
+          package_match = re.match(r"\s*package\s+([\w.]+);", source)
+          if not package_match:
+              raise SystemExit("Could not read package name from " + main_path)
+
+          template = """package __PACKAGE__;
+
+          import android.graphics.Color;
+          import android.os.Bundle;
+          import androidx.core.view.WindowCompat;
+          import androidx.core.view.WindowInsetsControllerCompat;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  // Keep web content below the status bar (battery / network / clock)
+                  WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+                  getWindow().setStatusBarColor(Color.WHITE);
+                  WindowInsetsControllerCompat controller =
+                      WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                  if (controller != null) {
+                      controller.setAppearanceLightStatusBars(true);
+                  }
+              }
+          }
+          """
+          with open(main_path, "w", encoding="utf-8") as f:
+              f.write(template.replace("__PACKAGE__", package_match.group(1)))
+          print("Patched " + main_path)
+          PY
       - name: Verify status bar patch
         script: |
           STYLES="android/app/src/main/res/values/styles.xml"
