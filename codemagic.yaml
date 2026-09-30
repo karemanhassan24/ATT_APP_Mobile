@@ -32,12 +32,15 @@ workflows:
           ls -la "$MANIFEST"
       - name: Apply app icon from logo.jpeg
         script: |
+          # Fix Windows CRLF if scripts were uploaded from Windows
+          sed -i 's/\r$//' scripts/*.sh || true
           chmod +x scripts/apply-android-icon.sh
           pip3 install --user pillow >/dev/null 2>&1 || true
           bash scripts/apply-android-icon.sh
       - name: Patch AndroidManifest for GPS and notifications
         script: |
           set -e
+          sed -i 's/\r$//' scripts/*.sh || true
           chmod +x scripts/patch-android-manifest.sh
           bash scripts/patch-android-manifest.sh android/app/src/main/AndroidManifest.xml
       - name: Verify location permissions in manifest
@@ -194,12 +197,14 @@ workflows:
           ls -la "$MANIFEST"
       - name: Apply app icon from logo.jpeg
         script: |
+          sed -i 's/\r$//' scripts/*.sh || true
           chmod +x scripts/apply-android-icon.sh
           pip3 install --user pillow >/dev/null 2>&1 || true
           bash scripts/apply-android-icon.sh
       - name: Patch AndroidManifest for GPS and notifications
         script: |
           set -e
+          sed -i 's/\r$//' scripts/*.sh || true
           chmod +x scripts/patch-android-manifest.sh
           bash scripts/patch-android-manifest.sh android/app/src/main/AndroidManifest.xml
       - name: Verify location permissions in manifest
@@ -210,7 +215,10 @@ workflows:
           grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
           echo "Location permissions verified in AndroidManifest.xml"
       - name: Patch status bar spacing (no full screen under system bars)
-        script: bash scripts/patch-android-statusbar.sh android
+        script: |
+          sed -i 's/\r$//' scripts/*.sh || true
+          chmod +x scripts/patch-android-statusbar.sh
+          bash scripts/patch-android-statusbar.sh android
       - name: Verify status bar patch
         script: |
           STYLES="android/app/src/main/res/values/styles.xml"
