@@ -469,8 +469,10 @@ tbody tr:hover td{background:var(--accent-light)} tbody tr[onclick]:hover td{bac
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, onAuthStateChanged, updatePassword }
+import { getAuth, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, onAuthStateChanged, updatePassword, sendPasswordResetEmail, signInAnonymously }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFunctions, httpsCallable }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
 import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, where, orderBy, addDoc, updateDoc, deleteDoc, serverTimestamp, limit, writeBatch, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -485,6 +487,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const cloudFunctions = getFunctions(app, 'us-central1');
 
 function setServerStatus(state,msg){
   const el=document.getElementById('serverStatus');
@@ -660,6 +663,31 @@ function requirePerm(key,msg){
   toast(msg||'ليس لديك صلاحية لهذا الإجراء','danger');
   return false;
 }
+function isSuperAdmin(){
+  return currentProfile?.role==='superadmin'&&currentProfile.disabled!==true;
+}
+function passwordMeetsPolicy(pass){
+  return typeof pass==='string'&&pass.length>=8&&pass.length<=128&&!/\s/.test(pass)&&/[A-Za-z]/.test(pass)&&/[0-9]/.test(pass);
+}
+async function hashPassword(password, saltB64){
+  const enc=new TextEncoder();
+  const salt=saltB64
+    ?Uint8Array.from(atob(saltB64),c=>c.charCodeAt(0))
+    :crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:100000,hash:'SHA-256'},keyMaterial,256);
+  const hashBytes=new Uint8Array(bits);
+  const hash=btoa(String.fromCharCode(...hashBytes));
+  const saltOut=btoa(String.fromCharCode(...salt));
+  return `${saltOut}:${hash}`;
+}
+async function verifyPassword(password,stored){
+  if(!stored||typeof stored!=='string'||!stored.includes(':'))return false;
+  const saltB64=stored.split(':')[0];
+  const next=await hashPassword(password,saltB64);
+  return next===stored;
+}
+let _hashLoginUid=null;
 function permissionsLabel(u){
   const map=normalizePermissions(u.role,u.permissions);
   const on=PERM_DEFS.filter(p=>map[p.key]).map(p=>p.label.replace(/^[^\s]+\s/,''));
@@ -1349,13 +1377,16 @@ async function checkDeviceBinding(uid){
 onAuthStateChanged(auth,async user=>{
   if(user){
     setServerStatus(navigator.onLine?'connecting':'disconnected',navigator.onLine?'جارٍ الاتصال...':'غير متصل');
-    currentUser=user;
-    const snap=await getDoc(doc(db,'users',user.uid));
+    const appUid=_hashLoginUid||user.uid;
+    const bridged=!!_hashLoginUid;
+    _hashLoginUid=null;
+    const snap=await getDoc(doc(db,'users',appUid));
     if(snap.exists()){
       currentProfile=snap.data();
+      currentUser=bridged?{uid:appUid,email:currentProfile.email||''}:user;
       if(currentProfile.disabled){await signOut(auth);showLoginPage();toast('حسابك موقوف، تواصل مع المدير','danger');return}
       setServerStatus('connected','متصل');
-      await checkDeviceBinding(user.uid);
+      await checkDeviceBinding(appUid);
       initApp();
     } else {await signOut(auth);showLoginPage()}
   } else {currentUser=null;currentProfile=null;showLoginPage();setServerStatus(navigator.onLine?'connecting':'disconnected',navigator.onLine?'جاهز للاتصال':'غير متصل')}
@@ -1374,10 +1405,37 @@ async function doLogin(){
     const q=query(collection(db,'users'),where('username','==',username));
     const snap=await getDocs(q);
     if(snap.empty){showErr('اسم المستخدم غير موجود');btn.disabled=false;btn.textContent='دخول';return}
+    const uid=snap.docs[0].id;
     const profile=snap.docs[0].data();
     if(profile.disabled){showErr('حسابك موقوف، تواصل مع المدير');btn.disabled=false;btn.textContent='دخول';return}
+
+    // If superadmin set a password hash, that becomes the login password
+    if(profile.passwordHash){
+      const ok=await verifyPassword(pass,profile.passwordHash);
+      if(!ok){showErr('كلمة المرور غير صحيحة');btn.disabled=false;btn.textContent='دخول';return}
+      try{
+        await signInWithEmailAndPassword(auth,profile.email,pass);
+      }catch(_authErr){
+        _hashLoginUid=uid;
+        try{
+          await signInAnonymously(auth);
+        }catch(_anonErr){
+          _hashLoginUid=null;
+          currentUser={uid,email:profile.email||''};
+          currentProfile=profile;
+          setServerStatus('connected','متصل');
+          await checkDeviceBinding(uid);
+          initApp();
+          hideLoading();
+          btn.disabled=false;btn.textContent='دخول';
+        }
+      }
+      return;
+    }
+
     await signInWithEmailAndPassword(auth,profile.email,pass);
   }catch(e){
+    _hashLoginUid=null;
     let msg='خطأ: '+(e.code||e.message);
     if(e.code==='auth/wrong-password'||e.code==='auth/invalid-credential')msg='كلمة المرور غير صحيحة';
     if(e.code==='auth/too-many-requests')msg='تم تجاوز عدد المحاولات، حاول لاحقاً';
@@ -2378,24 +2436,56 @@ async function renderAdmDash(){
 }
 
 /* ── ADMIN ATTENDANCE ── */
-async function renderAdmAttend(){
+async function renderAdmAttend(forcedDays){
   const el=document.getElementById('admAttend');if(!el)return;
+  const prevRange=document.getElementById('attRangeSelect')?.value;
+  const dayCount=Math.min(30,Math.max(1,parseInt(forcedDays||prevRange||'7',10)||7));
   el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text2)">جارٍ التحميل...</div>';
   try{
     const usersSnap=await getDocs(query(collection(db,'users'),where('role','==','manager')));
     const managers=usersSnap.docs.map(d=>({id:d.id,...d.data()}));
-    const days=[];for(let i=0;i<30;i++){const d=new Date();d.setDate(d.getDate()-i);days.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)}
-    const allRecords=[];
-    for(const m of managers){
-      for(const day of days.slice(0,14)){
-        const snap=await getDoc(doc(db,`attendance/${m.id}/records/${day}`));
-        if(snap.exists())allRecords.push({managerName:m.name,site:m.site,uid:m.id,schedule:m.schedule,weekendDays:m.weekendDays,...snap.data()});
-      }
+    const days=[];
+    for(let i=0;i<dayCount;i++){
+      const d=new Date();d.setDate(d.getDate()-i);
+      days.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
     }
-    allRecords.sort((a,b)=>b.date.localeCompare(a.date));
+    const daySet=new Set(days);
+    const startDate=days[days.length-1];
+
+    // One parallel fetch per manager (instead of sequential day-by-day getDoc)
+    const perManager=await Promise.all(managers.map(async m=>{
+      try{
+        const snap=await getDocs(query(
+          collection(db,`attendance/${m.id}/records`),
+          where('date','>=',startDate)
+        ));
+        return snap.docs
+          .map(docSnap=>{
+            const data=docSnap.data()||{};
+            const date=data.date||docSnap.id;
+            return {managerName:m.name,site:m.site,uid:m.id,schedule:m.schedule,weekendDays:m.weekendDays,...data,date};
+          })
+          .filter(r=>daySet.has(r.date));
+      }catch(_e){
+        // Fallback if date index/query fails: parallel getDoc for the requested days only
+        const snaps=await Promise.all(days.map(day=>getDoc(doc(db,`attendance/${m.id}/records/${day}`))));
+        return snaps.filter(s=>s.exists()).map(s=>{
+          const data=s.data()||{};
+          return {managerName:m.name,site:m.site,uid:m.id,schedule:m.schedule,weekendDays:m.weekendDays,...data,date:data.date||s.id};
+        });
+      }
+    }));
+
+    const allRecords=perManager.flat().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     el.innerHTML=`
       <div class="page-header"><div class="page-title">📋 سجل الحضور</div></div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center">
+        <select id="attRangeSelect" style="width:auto" onchange="renderAdmAttend(this.value)">
+          <option value="1" ${dayCount===1?'selected':''}>اليوم فقط</option>
+          <option value="7" ${dayCount===7?'selected':''}>آخر 7 أيام</option>
+          <option value="14" ${dayCount===14?'selected':''}>آخر 14 يوم</option>
+          <option value="30" ${dayCount===30?'selected':''}>آخر 30 يوم</option>
+        </select>
         <input type="date" id="filterDate" style="width:auto" placeholder="تصفية بالتاريخ" onchange="filterAttendance()"/>
         <select id="filterStatus" style="width:auto" onchange="filterAttendance()">
           <option value="">جميع الحالات</option>
@@ -2405,6 +2495,7 @@ async function renderAdmAttend(){
           <option value="extra">يوم إضافي</option>
         </select>
         <button class="btn-info" style="padding:8px 16px;font-size:13px" onclick="exportAttendanceCSV()">📊 تصدير Excel/CSV</button>
+        <span style="font-size:12px;color:var(--text3)">${allRecords.length} سجل — ${managers.length} مدير</span>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -2419,7 +2510,7 @@ async function renderAdmAttend(){
               <td style="color:var(--danger);font-weight:600">${r.checkOut||'—'}</td>
               <td>${fmtWorkHours(r.workHours)}</td>
               <td style="font-size:11px">${r.checkIn?(r.outsideWorkRange?`<span style="color:var(--warn);font-weight:600">⚠️ خارج النطاق${r.workDistance!=null?` (${r.workDistance}م)`:''}</span>`:`<span style="color:var(--success);font-weight:600">✅ داخل النطاق</span>`):'—'}</td>
-              <td onclick="event.stopPropagation()">${r.inLat&&r.inLng?`<img src="https://staticmap.openstreetmap.de/staticmap.php?center=${r.inLat},${r.inLng}&zoom=15&size=60x60&maptype=mapnik&markers=${r.inLat},${r.inLng},red-pushpin" width="44" height="44" style="border-radius:6px;border:1px solid var(--border);cursor:pointer;object-fit:cover" loading="lazy" onclick="showLocModal(${i},'_attRecords')" title="اضغط لعرض الموقع كاملاً" onerror="this.style.display='none'"/>`:'—'}</td>
+              <td onclick="event.stopPropagation()">${r.inLat&&r.inLng?`<button class="btn-ghost" style="padding:4px 8px;font-size:12px" onclick="showLocModal(${i},'_attRecords')" title="عرض الموقع">🗺️</button>`:'—'}</td>
               <td>${attendanceStatusBadge(r,r.schedule,r.weekendDays)}${(r.spotChecks||[]).some(sc=>sc.outsideRange)?'<div style="margin-top:3px"><span style="font-size:10px;color:var(--warn);font-weight:600" title="تم رصد خروج عن النطاق أثناء الدوام">📍⚠️ تحقق عشوائي</span></div>':''}</td>
               <td onclick="event.stopPropagation()">
                 ${r.adminNote?`<span title="${r.adminNote}" style="font-size:11px;color:var(--accent);cursor:pointer" onclick="showAddNoteModal('${r.date+r.managerName}','${r.uid||''}','${r.managerName||''}','${r.date}')">📝 ${r.adminNote.substring(0,15)}${r.adminNote.length>15?'...':''}</span>`
@@ -2432,6 +2523,7 @@ async function renderAdmAttend(){
     window._attRecords=allRecords;
   }catch(e){el.innerHTML=`<div class="notice notice-danger">❌ خطأ: ${e.message}</div>`}
 }
+window.renderAdmAttend=renderAdmAttend;
 
 window.filterAttendance=function(){
   const date=document.getElementById('filterDate')?.value;
@@ -2902,6 +2994,7 @@ async function renderAdmUsers(){
               <td style="display:flex;gap:4px;flex-wrap:wrap">
                 <button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showViewUserModal('${m.id}')">👁️</button>
                 ${hasPerm('usersManage')?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showEditUserModal('${m.id}')">✏️</button>`:''}
+                ${isSuperAdmin()?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showChangeUserPasswordModal('${m.id}')" title="تغيير كلمة المرور">🔑</button>`:''}
                 ${hasPerm('usersDelete')?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="toggleUserStatus('${m.id}','${m.name}',${!!m.disabled})">${m.disabled?'✅ تفعيل':'⏸️ إيقاف'}</button>`:''}
                 ${hasPerm('usersDelete')?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px;color:var(--danger);border-color:var(--danger)" onclick="confirmDeleteUser('${m.id}','${m.name}')">🗑️</button>`:''}
               </td>
@@ -2912,7 +3005,7 @@ async function renderAdmUsers(){
       <div class="section-title">🔑 الأدمنز (${admins.length})</div>
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>البريد</th><th>الدور</th><th>الصلاحيات</th><th>الحالة</th>${hasPerm('usersAdmin')?'<th>الإجراءات</th>':''}</tr></thead>
+          <thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>البريد</th><th>الدور</th><th>الصلاحيات</th><th>الحالة</th>${hasPerm('usersAdmin')||isSuperAdmin()?'<th>الإجراءات</th>':''}</tr></thead>
           <tbody>
             ${admins.map(a=>`<tr>
               <td style="font-weight:600">${a.name}</td>
@@ -2921,8 +3014,9 @@ async function renderAdmUsers(){
               <td><span class="badge ${a.role==='superadmin'?'badge-purple':'badge-info'}">${a.role==='superadmin'?'سوبر أدمن':'أدمن قسم'}</span></td>
               <td class="perm-cell">${permissionsLabel(a)}</td>
               <td><span class="badge ${a.disabled?'badge-danger':'badge-success'}">${a.disabled?'موقوف':'نشط'}</span></td>
-              ${hasPerm('usersAdmin')?`<td style="display:flex;gap:4px;flex-wrap:wrap">
-                <button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showEditAdminModal('${a.id}')">🔐 صلاحيات</button>
+              ${hasPerm('usersAdmin')||isSuperAdmin()?`<td style="display:flex;gap:4px;flex-wrap:wrap">
+                ${hasPerm('usersAdmin')?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showEditAdminModal('${a.id}')">🔐 صلاحيات</button>`:''}
+                ${isSuperAdmin()?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="showChangeUserPasswordModal('${a.id}')" title="تغيير كلمة المرور">🔑</button>`:''}
                 ${hasPerm('usersDelete')&&a.id!==currentUser.uid?`<button class="btn-ghost" style="padding:4px 9px;font-size:12px" onclick="toggleUserStatus('${a.id}','${a.name}',${!!a.disabled})">${a.disabled?'✅ تفعيل':'⏸️ إيقاف'}</button>`:''}
               </td>`:''}
             </tr>`).join('')}
@@ -3021,7 +3115,8 @@ window.showViewUserModal=async function(uid){
     </div>`:''}
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeModal()">إغلاق</button>
-      <button class="btn-primary" onclick="closeModal();showEditUserModal('${uid}')">✏️ تعديل</button>
+      ${isSuperAdmin()?`<button class="btn-ghost" onclick="closeModal();showChangeUserPasswordModal('${uid}')">🔑 كلمة المرور</button>`:''}
+      ${hasPerm('usersManage')?`<button class="btn-primary" onclick="closeModal();showEditUserModal('${uid}')">✏️ تعديل</button>`:''}
     </div>
   `);
 };
@@ -3045,6 +3140,77 @@ window.resetManagerDevice=async function(uid,name){
     await writeAudit('device_reset',{uid,name});
     toast('تم إعادة ضبط الجهاز بنجاح','success');renderAdmUsers();
   }catch(e){toast('خطأ: '+e.message,'danger')}
+};
+
+window.showChangeUserPasswordModal=async function(uid){
+  if(!isSuperAdmin()){toast('فقط السوبر أدمن يمكنه تغيير كلمة مرور المستخدمين','danger');return}
+  const snap=await getDoc(doc(db,'users',uid));if(!snap.exists()){toast('المستخدم غير موجود','danger');return}
+  const u=snap.data();
+  openModal(`
+    <h2>🔑 تغيير كلمة المرور</h2>
+    <div class="notice notice-info" style="font-size:12px">تعيين كلمة مرور جديدة لحساب: <b>${u.name||u.username||''}</b><br>بعد الحفظ يستطيع المستخدم الدخول مباشرة بالكلمة الجديدة.</div>
+    <div class="form-row-1">
+      <label class="field-label">كلمة المرور الجديدة</label>
+      <input type="password" id="newUserPass" placeholder="8 أحرف على الأقل، حروف وأرقام" style="direction:ltr" autocomplete="new-password"/>
+    </div>
+    <div class="form-row-1">
+      <label class="field-label">تأكيد كلمة المرور</label>
+      <input type="password" id="newUserPass2" placeholder="أعد إدخال كلمة المرور" style="direction:ltr" autocomplete="new-password"/>
+    </div>
+    <div id="modalErr" style="margin-bottom:8px"></div>
+    <div class="modal-footer" style="flex-wrap:wrap">
+      <button class="btn-ghost" onclick="closeModal()">إلغاء</button>
+      <button class="btn-primary" id="savePassBtn" onclick="saveUserPassword('${uid}')">💾 حفظ كلمة المرور</button>
+    </div>
+  `);
+};
+
+window.saveUserPassword=async function(uid){
+  if(!isSuperAdmin()){toast('فقط السوبر أدمن يمكنه تغيير كلمة مرور المستخدمين','danger');return}
+  const pass=document.getElementById('newUserPass')?.value||'';
+  const pass2=document.getElementById('newUserPass2')?.value||'';
+  const errEl=document.getElementById('modalErr');
+  const btn=document.getElementById('savePassBtn');
+  if(errEl)errEl.innerHTML='';
+  if(pass!==pass2){
+    if(errEl)errEl.innerHTML='<div class="notice notice-warn">⚠️ كلمتا المرور غير متطابقتين</div>';
+    return;
+  }
+  if(!passwordMeetsPolicy(pass)){
+    if(errEl)errEl.innerHTML='<div class="notice notice-warn">⚠️ كلمة المرور يجب ألا تقل عن 8 أحرف وأن تحتوي على حروف وأرقام بدون مسافات</div>';
+    return;
+  }
+  if(btn){btn.disabled=true;btn.textContent='جارٍ الحفظ...'}
+  try{
+    const passwordHash=await hashPassword(pass);
+    if(currentUser&&uid===currentUser.uid&&auth.currentUser&&auth.currentUser.uid===uid){
+      try{await updatePassword(auth.currentUser,pass)}catch(e){
+        if(e.code==='auth/requires-recent-login')throw e;
+      }
+    }
+    await updateDoc(doc(db,'users',uid),{
+      passwordHash,
+      passwordChangedAt:serverTimestamp(),
+      passwordChangedBy:currentProfile.name
+    });
+    // Best-effort Auth sync via Cloud Function if deployed (Blaze). Hash login works without it.
+    try{
+      const resetFn=httpsCallable(cloudFunctions,'resetUserPassword');
+      await resetFn({uid,newPassword:pass});
+    }catch(_fnErr){}
+    await writeAudit('user_password_changed',{uid,self:uid===currentUser?.uid});
+    closeModal();
+    toast('تم تغيير كلمة المرور بنجاح — يمكن الدخول بالكلمة الجديدة فوراً','success');
+  }catch(e){
+    const code=String(e.code||'');
+    let msg=e.message||'تعذر تحديث كلمة المرور';
+    if(code==='auth/requires-recent-login')msg='أعد تسجيل الدخول ثم غيّر كلمة مرور حسابك';
+    if(code==='auth/weak-password')msg='كلمة المرور ضعيفة';
+    if(code==='permission-denied')msg='لا توجد صلاحية لتحديث المستخدم في Firestore';
+    console.error('saveUserPassword failed',{code,message:e.message});
+    if(errEl)errEl.innerHTML=`<div class="notice notice-danger">❌ ${msg}</div>`;
+    if(btn){btn.disabled=false;btn.textContent='💾 حفظ كلمة المرور'}
+  }
 };
 
 window.showAddUserModal=function(role){
@@ -3221,7 +3387,7 @@ window.saveNewUser=async function(role){
     const customStart=schedule==='custom'?(document.getElementById('mStartTime')?.value||'09:00'):null;
     const customEnd  =schedule==='custom'?(document.getElementById('mEndTime')?.value||'17:00'):null;
     const weekendDays=role==='manager'?readWeekendDays('m'):DEFAULT_WEEKEND_DAYS.slice();
-    const userData={name,username,email,jobTitle,role,site,schedule,weekendDays,workLat:lat,workLng:lng,workRadius:radius,disabled:false,createdAt:serverTimestamp(),createdBy:currentProfile.name};
+    const userData={name,username,email,jobTitle,role,site,schedule,weekendDays,workLat:lat,workLng:lng,workRadius:radius,disabled:false,createdAt:serverTimestamp(),createdBy:currentProfile.name,passwordHash:await hashPassword(pass)};
     if(role==='admin'||role==='superadmin')userData.permissions=readPermissions('m',role);
     if(leaveBalance)userData.leaveBalance=leaveBalance;
     if(customStart)userData.customStartTime=customStart;
@@ -3405,7 +3571,7 @@ window.processCSVImport=async function(){
       await setDoc(doc(db,'users',cred.user.uid),{
         name:r.name,username:r.username.toLowerCase(),email:r.email,jobTitle:r.jobtitle||r.job||'',role:'manager',
         site:r.site||'—',schedule:r.schedule||'morning',weekendDays:parseWeekendDaysCsv(r.weekenddays||r.weekend),disabled:false,
-        createdAt:serverTimestamp(),createdBy:currentProfile.name
+        createdAt:serverTimestamp(),createdBy:currentProfile.name,passwordHash:await hashPassword(r.password)
       });
       success++;
     }catch(e){fail++}
