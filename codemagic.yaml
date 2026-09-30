@@ -18,6 +18,12 @@ workflows:
           fi
       - name: Sync Capacitor Android
         script: npx cap sync android
+      - name: Apply app icon from logo.jpeg
+        script: |
+          chmod +x scripts/apply-android-icon.sh
+          # Prefer Pillow on Codemagic for clean compositing
+          pip3 install --user pillow >/dev/null 2>&1 || true
+          bash scripts/apply-android-icon.sh
       - name: Patch AndroidManifest for GPS and notifications
         script: |
           python3 <<'PY'
@@ -195,6 +201,11 @@ workflows:
           fi
       - name: Sync Capacitor Android
         script: npx cap sync android
+      - name: Apply app icon from logo.jpeg
+        script: |
+          chmod +x scripts/apply-android-icon.sh
+          pip3 install --user pillow >/dev/null 2>&1 || true
+          bash scripts/apply-android-icon.sh
       - name: Patch AndroidManifest for GPS and notifications
         script: |
           python3 <<'PY'
