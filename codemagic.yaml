@@ -11,42 +11,54 @@ workflows:
     scripts:
       - name: Install dependencies
         script: npm install
-      - name: Ensure complete Android platform
+      - name: Add Android platform if missing
         script: |
-          set -e
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ ! -f "$MANIFEST" ] || [ ! -f "android/app/build.gradle" ] || [ ! -f "android/build.gradle" ]; then
-            echo "Android project incomplete — recreating..."
-            rm -rf android
+          if [ ! -d "android" ]; then
             npx cap add android
-          else
-            echo "Complete Android project found"
           fi
-          npx cap sync android
-          if [ ! -f "$MANIFEST" ]; then
-            echo "ERROR: AndroidManifest.xml still missing after cap add/sync"
-            find android -maxdepth 4 -type f | head -100 || true
-            exit 1
-          fi
-          echo "AndroidManifest.xml ready:"
-          ls -la "$MANIFEST"
-      - name: Apply app icon from logo.jpeg
-        script: |
-          # Fix Windows CRLF if scripts were uploaded from Windows
-          sed -i 's/\r$//' scripts/*.sh || true
-          chmod +x scripts/apply-android-icon.sh
-          pip3 install --user pillow >/dev/null 2>&1 || true
-          bash scripts/apply-android-icon.sh
+      - name: Sync Capacitor Android
+        script: npx cap sync android
       - name: Patch AndroidManifest for GPS and notifications
         script: |
-          set -e
-          sed -i 's/\r$//' scripts/*.sh || true
-          chmod +x scripts/patch-android-manifest.sh
-          bash scripts/patch-android-manifest.sh android/app/src/main/AndroidManifest.xml
+          python3 <<'PY'
+          path = "android/app/src/main/AndroidManifest.xml"
+          perms = [
+              "INTERNET",
+              "ACCESS_FINE_LOCATION",
+              "ACCESS_COARSE_LOCATION",
+              "ACCESS_NETWORK_STATE",
+              "POST_NOTIFICATIONS",
+              "VIBRATE",
+          ]
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          for perm in perms:
+              token = f"android.permission.{perm}"
+              if token in content:
+                  print(f"Already has: {perm}")
+                  continue
+              line = f'    <uses-permission android:name="{token}" />\n'
+              if "<application" not in content:
+                  raise SystemExit("No <application tag found")
+              content = content.replace("<application", line + "<application", 1)
+              print(f"Added permission: {perm}")
+          if "android.hardware.location.gps" not in content and "<application" in content:
+              feature = '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+              content = content.replace("<application", feature + "<application", 1)
+              print("Added GPS hardware feature")
+          if "android:usesCleartextTraffic" not in content:
+              content = content.replace("<application ", '<application android:usesCleartextTraffic="true" ', 1)
+              print("Enabled usesCleartextTraffic")
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          for required in ("ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"):
+              if f"android.permission.{required}" not in content:
+                  raise SystemExit(f"FAILED: missing {required}")
+          print("AndroidManifest.xml patched and verified successfully")
+          PY
       - name: Verify location permissions in manifest
         script: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          grep -n 'ACCESS_FINE_LOCATION\|ACCESS_COARSE_LOCATION\|usesCleartextTraffic' "$MANIFEST"
           grep -q 'android.permission.ACCESS_FINE_LOCATION' "$MANIFEST"
           grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
           echo "Location permissions verified in AndroidManifest.xml"
@@ -162,6 +174,76 @@ workflows:
           success: true
           failure: true
 
+  ios-testflight:
+    name: iOS TestFlight
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    integrations:
+      # Create an App Store Connect integration in Codemagic with this exact name.
+      app_store_connect: alfath_app_store_connect
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.alfath.attendance
+      vars:
+        XCODE_WORKSPACE: "App.xcworkspace"
+        XCODE_SCHEME: "App"
+      node: "20"
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Create and sync Capacitor iOS project
+        script: |
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+          npx cap sync ios
+      - name: Configure iPhone permissions
+        script: |
+          PLIST="$CM_BUILD_DIR/ios/App/App/Info.plist"
+          if [ ! -f "$PLIST" ]; then
+            echo "Info.plist not found: $PLIST"
+            exit 1
+          fi
+
+          set_plist_value() {
+            KEY="$1"
+            TYPE="$2"
+            VALUE="$3"
+            /usr/libexec/PlistBuddy -c "Set :$KEY $VALUE" "$PLIST" 2>/dev/null || \
+              /usr/libexec/PlistBuddy -c "Add :$KEY $TYPE $VALUE" "$PLIST"
+          }
+
+          set_plist_value NSLocationWhenInUseUsageDescription string \
+            "يستخدم التطبيق موقعك للتحقق من تسجيل الحضور والانصراف داخل نطاق العمل."
+          set_plist_value UIFileSharingEnabled bool true
+          set_plist_value LSSupportsOpeningDocumentsInPlace bool true
+          set_plist_value ITSAppUsesNonExemptEncryption bool false
+
+          /usr/libexec/PlistBuddy -c "Print :NSLocationWhenInUseUsageDescription" "$PLIST"
+      - name: Set up iOS code signing
+        script: xcode-project use-profiles
+      - name: Set iOS build number
+        script: |
+          cd "$CM_BUILD_DIR/ios/App"
+          agvtool new-version -all "$PROJECT_BUILD_NUMBER"
+      - name: Build signed IPA
+        script: |
+          cd "$CM_BUILD_DIR/ios/App"
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - ios/App/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
   android-release:
     name: Android Release APK
     max_build_duration: 60
@@ -176,49 +258,59 @@ workflows:
     scripts:
       - name: Install dependencies
         script: npm install
-      - name: Ensure complete Android platform
+      - name: Add Android platform if missing
         script: |
-          set -e
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ ! -f "$MANIFEST" ] || [ ! -f "android/app/build.gradle" ] || [ ! -f "android/build.gradle" ]; then
-            echo "Android project incomplete — recreating..."
-            rm -rf android
+          if [ ! -d "android" ]; then
             npx cap add android
-          else
-            echo "Complete Android project found"
           fi
-          npx cap sync android
-          if [ ! -f "$MANIFEST" ]; then
-            echo "ERROR: AndroidManifest.xml still missing after cap add/sync"
-            find android -maxdepth 4 -type f | head -100 || true
-            exit 1
-          fi
-          echo "AndroidManifest.xml ready:"
-          ls -la "$MANIFEST"
-      - name: Apply app icon from logo.jpeg
-        script: |
-          sed -i 's/\r$//' scripts/*.sh || true
-          chmod +x scripts/apply-android-icon.sh
-          pip3 install --user pillow >/dev/null 2>&1 || true
-          bash scripts/apply-android-icon.sh
+      - name: Sync Capacitor Android
+        script: npx cap sync android
       - name: Patch AndroidManifest for GPS and notifications
         script: |
-          set -e
-          sed -i 's/\r$//' scripts/*.sh || true
-          chmod +x scripts/patch-android-manifest.sh
-          bash scripts/patch-android-manifest.sh android/app/src/main/AndroidManifest.xml
+          python3 <<'PY'
+          path = "android/app/src/main/AndroidManifest.xml"
+          perms = [
+              "INTERNET",
+              "ACCESS_FINE_LOCATION",
+              "ACCESS_COARSE_LOCATION",
+              "ACCESS_NETWORK_STATE",
+              "POST_NOTIFICATIONS",
+              "VIBRATE",
+          ]
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          for perm in perms:
+              token = f"android.permission.{perm}"
+              if token in content:
+                  print(f"Already has: {perm}")
+                  continue
+              line = f'    <uses-permission android:name="{token}" />\n'
+              if "<application" not in content:
+                  raise SystemExit("No <application tag found")
+              content = content.replace("<application", line + "<application", 1)
+              print(f"Added permission: {perm}")
+          if "android.hardware.location.gps" not in content and "<application" in content:
+              feature = '    <uses-feature android:name="android.hardware.location.gps" android:required="false" />\n'
+              content = content.replace("<application", feature + "<application", 1)
+              print("Added GPS hardware feature")
+          if "android:usesCleartextTraffic" not in content:
+              content = content.replace("<application ", '<application android:usesCleartextTraffic="true" ', 1)
+              print("Enabled usesCleartextTraffic")
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          for required in ("ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"):
+              if f"android.permission.{required}" not in content:
+                  raise SystemExit(f"FAILED: missing {required}")
+          print("AndroidManifest.xml patched and verified successfully")
+          PY
       - name: Verify location permissions in manifest
         script: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          grep -n 'ACCESS_FINE_LOCATION\|ACCESS_COARSE_LOCATION\|usesCleartextTraffic' "$MANIFEST"
           grep -q 'android.permission.ACCESS_FINE_LOCATION' "$MANIFEST"
           grep -q 'android.permission.ACCESS_COARSE_LOCATION' "$MANIFEST"
           echo "Location permissions verified in AndroidManifest.xml"
       - name: Patch status bar spacing (no full screen under system bars)
-        script: |
-          sed -i 's/\r$//' scripts/*.sh || true
-          chmod +x scripts/patch-android-statusbar.sh
-          bash scripts/patch-android-statusbar.sh android
+        script: bash scripts/patch-android-statusbar.sh android
       - name: Verify status bar patch
         script: |
           STYLES="android/app/src/main/res/values/styles.xml"
