@@ -7,7 +7,8 @@
     "build": "echo \"No build step — static HTML in www/\"",
     "cap:sync": "npx cap sync android && powershell -ExecutionPolicy Bypass -File scripts/patch-android-manifest.ps1",
     "cap:open": "npx cap open android",
-    "patch:android": "powershell -ExecutionPolicy Bypass -File scripts/patch-android-manifest.ps1"
+    "patch:android": "powershell -ExecutionPolicy Bypass -File scripts/patch-android-manifest.ps1",
+    "deploy:password-fn": "powershell -ExecutionPolicy Bypass -File scripts/deploy-password-function.ps1"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",

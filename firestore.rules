@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isAdminUser() {
+      return signedIn() && me().role in ['admin', 'superadmin'];
+    }
+    function isManagerRecipient() {
+      return me().role == 'manager' && me().userType != 'employee';
+    }
+    function isEmployeeRecipient() {
+      return me().userType == 'employee';
+    }
+
+    match /notifications/{notifId} {
+      allow read: if signedIn() && (
+        isAdminUser() && resource.data.forRole == 'admins'
+        || (resource.data.forRole == 'superadmin' && me().role == 'superadmin')
+        || resource.data.forUid == request.auth.uid
+      );
+      allow create: if signedIn()
+        && me().role == 'manager'
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.forRole in ['admins', 'superadmin'];
+      allow update: if isAdminUser() || (me().role == 'superadmin' && resource.data.forRole == 'superadmin');
+      allow delete: if isAdminUser();
+    }
+
+    match /inbox/{messageId} {
+      allow read: if signedIn() && (
+        isAdminUser()
+        || resource.data.toUid == 'all'
+        || resource.data.toUid == request.auth.uid
+        || (resource.data.toUid == 'role:manager' && isManagerRecipient())
+        || (resource.data.toUid == 'role:employee' && isEmployeeRecipient())
+      );
+      allow create: if isAdminUser()
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toUid is string
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 2000;
+      allow delete: if isAdminUser();
+      allow update: if false;
+    }
+  }
+}

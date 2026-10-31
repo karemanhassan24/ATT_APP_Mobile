@@ -40,3 +40,22 @@ In Android Studio: **Build → Build Bundle(s) / APK(s) → Build APK(s)**.
 | Web entry | `www/index.html`         |
 
 Permissions: Internet, fine/coarse location (GPS).
+
+## الرسائل (Inbox)
+
+- **كل مستخدم** (مدير / موظف): تبويب **«الرسائل»** في الشاشة الرئيسية — يستقبل رسائل فردية أو جماعية.
+- **أدمن / سوبر أدمن**: تبويب **«📥 الرسائل»** في لوحة الإدارة — إرسال إلى:
+  - **الكل**، **جميع المديرين**، **جميع الموظفين**، أو **شخص واحد**.
+- البيانات في مجموعة Firestore: `inbox` (`toUid`: `all` | `role:manager` | `role:employee` | `<uid>`).
+
+### قواعد Firestore
+
+انسخ محتوى [`firestore.rules`](firestore.rules) إلى مشروع Firebase (Console → Firestore → Rules) أو أضف:
+
+```json
+"firestore": { "rules": "firestore.rules" }
+```
+
+إلى `firebase.json` ثم `firebase deploy --only firestore:rules`.
+
+بدون هذه القواعد، الإرسال/القراءة تفشل برسالة `permission-denied`.
