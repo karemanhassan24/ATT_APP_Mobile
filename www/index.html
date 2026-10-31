@@ -761,7 +761,7 @@ html,body{font-family:'Tajawal','IBM Plex Sans Arabic',system-ui,sans-serif;back
 .login-box h1{color:var(--brand-deep)!important;font-weight:800}
 input,select,textarea{border-radius:10px;border:1.5px solid var(--border2);background:#fff}
 input:focus,select:focus,textarea:focus{border-color:var(--accent2);box-shadow:0 0 0 4px rgba(20,184,166,.15)}
-.tbl-wrap{border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow)}
+.tbl-wrap{border-radius:14px;border:1px solid var(--border);overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch;box-shadow:var(--shadow)}
 th{background:#f0fdfa!important;color:var(--brand-deep)!important;font-weight:800;border-bottom:1px solid #a7f3d0}
 tbody tr:hover td{background:#f0fdfa}
 .badge-success{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
@@ -3809,6 +3809,7 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
     return p.role === 'manager' && p.userType !== 'employee';
   }
   function inboxQueriesForMe(){
+    if(!window.currentUser) return [];
     var uid = currentUser.uid;
     var qs = [
       query(collection(db,'inbox'), where('toUid','==','all')),
@@ -3819,9 +3820,14 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
     return qs;
   }
   function fetchMine(){
-    return Promise.all(inboxQueriesForMe()).then(function(r){
+    var qs = inboxQueriesForMe();
+    if(!qs.length) return Promise.resolve([]);
+    return Promise.all(qs.map(function(q){ return getDocs(q); })).then(function(r){
       var out = [], seen = {};
-      r.forEach(function(sn){ sn.docs.forEach(function(d){ if(seen[d.id]) return; seen[d.id] = 1; out.push(Object.assign({ id:d.id }, d.data())); }); });
+      r.forEach(function(sn){
+        if(!sn || !sn.docs) return;
+        sn.docs.forEach(function(d){ if(seen[d.id]) return; seen[d.id] = 1; out.push(Object.assign({ id:d.id }, d.data())); });
+      });
       out.sort(function(a,b){ return tsOf(b) - tsOf(a); });
       INBOX.msgs = out; return out;
     });
@@ -4603,7 +4609,42 @@ function isMgrRole(u){return !!u&&u.role==='manager'&&!isEmp(u)&&!u.disabled;}
     '.v11-pick{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;background:#fff;cursor:pointer}',
     '.v11-pick.off{opacity:.55;cursor:not-allowed}',
     '.v11-pick input{width:18px;height:18px;margin-top:3px;padding:0;flex-shrink:0}',
-    '.v11-pick b{display:block;font-size:13px}.v11-pick span{font-size:12px;color:var(--text2)}'
+    '.v11-pick b{display:block;font-size:13px}.v11-pick span{font-size:12px;color:var(--text2)}',
+    '/* ── v12: موبايل — جداول + لوحة + إجازات ── */',
+    '@media(max-width:768px){',
+    '.tbl-wrap{overflow-x:auto!important;overflow-y:visible;-webkit-overflow-scrolling:touch;max-width:100%}',
+    '.tbl-wrap table{min-width:max(100%,640px)}',
+    '.tbl-wrap td,.tbl-wrap th{overflow-wrap:anywhere;word-break:break-word;vertical-align:top}',
+    '.tbl-wrap::after{content:"← اسحب أفقياً لباقي الأعمدة";display:block;text-align:center;font-size:11px;color:var(--text3);padding:8px 6px 4px;border-top:1px dashed var(--border)}',
+    '#mgrsTbody td:first-child,.att2-tbl td:first-child{font-weight:700;min-width:110px}',
+    '.stats-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}',
+    '.stat-card::after{display:none}',
+    '.stat-card{padding:12px 10px}',
+    '.stat-card .num{font-size:22px!important}',
+    '.lv7-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}',
+    '.lv7-kpi{padding:8px 10px}',
+    '.lv7-kpi b{font-size:17px}',
+    '.lv7-kpi span{font-size:10.5px}',
+    '.lv7-bar{align-items:stretch}',
+    '.lv7-bar input,.lv7-bar select,.lv7-bar .sp{width:100%;min-width:0}',
+    '.lv7-bar .sp{display:none}',
+    '#admLeaves .tbl-wrap{margin-bottom:12px}',
+    '.dash-datebar{align-items:stretch}',
+    '.dash-datebar input[type=date],.dash-datebar button{width:100%;max-width:none}',
+    '.att2-bar{align-items:stretch}',
+    '.att2-bar .att2-search,.att2-bar select,.att2-bar input{width:100%;min-width:0}',
+    '.att2-bar .sp{display:none}',
+    '.topbar{align-items:flex-start;padding-bottom:8px}',
+    '.topbar-left{min-width:0;flex:1;align-items:flex-start}',
+    '.topbar-right{flex-shrink:0;gap:6px;flex-wrap:wrap;justify-content:flex-end}',
+    '.topbar-name{font-size:13px!important;line-height:1.35}',
+    '.topbar-role,.server-status{font-size:10px!important}',
+    '.logout-btn{padding:6px 10px;font-size:12px}',
+    '.page-title{font-size:17px}',
+    '.page-sub{font-size:12px;line-height:1.45}',
+    '.badge{white-space:normal;line-height:1.35}',
+    '.lv7-pill{max-width:100%;white-space:normal}',
+    '}'
   ].join('\n');
   document.head.appendChild(st);
 })();
@@ -4611,6 +4652,9 @@ function isMgrRole(u){return !!u&&u.role==='manager'&&!isEmp(u)&&!u.disabled;}
 /* ═════ 1) فلتر «مديرين / موظفين / الكل» — يشتغل على كل الصفحات اللي بتقرأ قائمة المديرين ═════ */
 var scope='managers';
 function scopeOk(u){var e=isEmp(u);return scope==='all'||(scope==='employees'?e:!e);}
+window.v11SetScope=function(s){
+  if(s==='employees'||s==='all'||s==='managers')scope=s;
+};
 function filterSnap(s){
   if(!s||!s.docs)return s;
   var fd=s.docs.filter(function(d){return scopeOk(d.data()||{});});
@@ -5175,6 +5219,253 @@ function start(){
   injectTab();
 }
 start();
+})();
+</script>
+
+<script>
+/* ═════ v12 — التقرير الشهري: PDF فعلي + تقرير الموظفين منفصل ═════ */
+(function(){
+'use strict';
+var $=function(i){return document.getElementById(i);};
+var isEmpU=function(u){return !!u&&u.userType==='employee';};
+var isMgrU=function(u){return !!u&&u.role==='manager'&&!isEmpU(u)&&!u.disabled;};
+
+window._admMonthlyReportScope=window._admMonthlyReportScope||'managers';
+
+function monthlyScope(){return window._admMonthlyReportScope==='employees'?'employees':'managers';}
+
+function setMonthlyScope(sc){
+  window._admMonthlyReportScope=sc==='employees'?'employees':'managers';
+  if(typeof window.v11SetScope==='function')window.v11SetScope(monthlyScope());
+}
+
+function fetchMonthlyPeople(){
+  return getDocs(collection(db,'users')).then(function(sn){
+    var all=sn.docs.map(function(d){var o=d.data()||{};o.id=d.id;return o;})
+      .filter(function(u){return u.role==='manager'&&!u.disabled;});
+    window._admMonthlyAllUsers=all;
+    window._admMonthlyManagers=monthlyScope()==='employees'?all.filter(isEmpU):all.filter(isMgrU);
+    return window._admMonthlyManagers;
+  });
+}
+
+function injectMonthlyTabs(){
+  var root=$('admMonthly');if(!root||root.classList.contains('hidden')||$('v12MonthlyTabs'))return;
+  var hdr=root.querySelector('.page-header');if(!hdr)return;
+  var box=document.createElement('div');
+  box.id='v12MonthlyTabs';box.className='lv7-tabs no-print';box.style.marginBottom='12px';
+  box.innerHTML=
+    '<button type="button" class="lv7-tab on" data-sc="managers">👔 تقرير المديرين</button>'+
+    '<button type="button" class="lv7-tab" data-sc="employees">👤 تقرير الموظفين</button>';
+  hdr.insertAdjacentElement('afterend',box);
+  box.querySelectorAll('.lv7-tab').forEach(function(b){
+    b.onclick=function(){
+      var sc=b.getAttribute('data-sc')||'managers';
+      setMonthlyScope(sc);
+      box.querySelectorAll('.lv7-tab').forEach(function(x){x.classList.toggle('on',x===b);});
+      updateMonthlySub();
+      fetchMonthlyPeople().then(function(){
+        if(typeof window.loadAdminMonthlyData==='function')return window.loadAdminMonthlyData();
+      }).then(null,function(e){toast('خطأ: '+(e&&e.message),'danger');});
+    };
+  });
+  updateMonthlySub();
+}
+
+function updateMonthlySub(){
+  var sub=document.querySelector('#admMonthly .page-sub');
+  if(!sub)return;
+  sub.textContent=monthlyScope()==='employees'
+    ? 'تقرير تفصيلي منفصل للموظفين — حضور وإجازات وأذونات (نفس تفاصيل PDF)'
+    : 'كل بيانات الحضور والإجازات للمديرين فقط (بدون الموظفين المنفصلين)';
+}
+
+function ensurePdfLibs(){
+  if(window.html2canvas&&window.jspdf)return Promise.resolve();
+  if(typeof window.ensurePdfLibs==='function')return window.ensurePdfLibs();
+  return Promise.reject(new Error('مكتبات PDF غير متاحة — تحقق من الاتصال بالإنترنت'));
+}
+
+function exportHtmlToPdfFile(bodyHtml,title,month,scopeKey){
+  return ensurePdfLibs().then(function(){
+    toast('⏳ جارٍ إعداد ملف PDF...','info');
+    var css=window.DETAILED_REPORT_CSS||(window.__A4&&window.__A4.A4_CSS)||'';
+    var wrap=document.createElement('div');
+    wrap.style.cssText='position:fixed;left:0;top:0;width:794px;background:#fff;direction:rtl;z-index:99999;opacity:0.01;pointer-events:none';
+    wrap.innerHTML='<style>'+css+' body{margin:0;padding:16px 18px}</style><div class="sheet">'+bodyHtml+'</div>';
+    document.body.appendChild(wrap);
+    return new Promise(function(r){requestAnimationFrame(function(){setTimeout(r,150);});}).then(function(){
+      var h=wrap.scrollHeight||1200;
+      var scale=Math.min(1.8,Math.max(0.75,11000/Math.max(h,1)));
+      return html2canvas(wrap,{scale:scale,useCORS:true,backgroundColor:'#ffffff',logging:false,width:794});
+    }).then(function(canvas){
+      document.body.removeChild(wrap);
+      if(!canvas||!canvas.width||!canvas.height)throw new Error('تعذّر رسم التقرير — جرّب مديراً واحداً من الفلتر');
+      var JsPDF=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+      if(!JsPDF)throw new Error('مكتبة jsPDF غير محمّلة');
+      var pdf=new JsPDF('p','mm','a4');
+      var pageW=pdf.internal.pageSize.getWidth();
+      var pageH=pdf.internal.pageSize.getHeight();
+      var imgW=pageW;
+      var imgH=canvas.height*imgW/canvas.width;
+      var imgData=canvas.toDataURL('image/jpeg',0.9);
+      var heightLeft=imgH;
+      var position=0;
+      pdf.addImage(imgData,'JPEG',0,position,imgW,imgH);
+      heightLeft-=pageH;
+      while(heightLeft>0){
+        position=heightLeft-imgH;
+        pdf.addPage();
+        pdf.addImage(imgData,'JPEG',0,position,imgW,imgH);
+        heightLeft-=pageH;
+      }
+      var suffix=scopeKey==='employees'?'الموظفين':'المديرين';
+      var fname='التقرير_الشهري_التفصيلي_'+month+'_'+suffix+'.pdf';
+      var blob=pdf.output('blob');
+      if(typeof saveFile==='function')return saveFile(fname,blob);
+      pdf.save(fname);
+    }).then(function(){
+      toast('✅ تم تصدير PDF','success');
+    });
+  });
+}
+
+function exportMonthlyDetailedPdf(){
+  var details=window._admMonthlyDetailsFiltered||window._admMonthlyDetails||[];
+  var month=($('admReportMonth')||{}).value||'';
+  if(!details.length){toast('لا توجد بيانات — اختر السنة والشهر وانتظر التحميل','warn');return Promise.resolve();}
+  if(typeof window.buildDetailedReportHtml!=='function'){toast('مكوّن التقرير غير متاح','danger');return Promise.resolve();}
+  var built=window.buildDetailedReportHtml(details,month);
+  var scopeKey=monthlyScope();
+  var title=(built.title||'التقرير الشهري التفصيلي')+(scopeKey==='employees'?' — الموظفين':' — المديرين');
+  return exportHtmlToPdfFile(built.body,title,month,scopeKey).catch(function(err){
+    if(window.__A4&&typeof window.__A4.openA4Print==='function'){
+      toast('فتح الطباعة — اختر «حفظ كـ PDF»','info',5000);
+      window.__A4.openA4Print(title,built.body);
+      return;
+    }
+    toast('خطأ PDF: '+(err&&err.message||err),'danger',8000);
+  });
+}
+
+window.exportAdminMonthlyDetailedPDF=function(){return exportMonthlyDetailedPdf();};
+
+(function(){
+  var orig=window.renderAdminMonthlyReport;
+  if(typeof orig!=='function'||orig.__v12)return;
+  window.renderAdminMonthlyReport=function(){
+    setMonthlyScope(window._admMonthlyReportScope||'managers');
+    return Promise.resolve(orig.apply(this,arguments)).then(function(r){
+      return fetchMonthlyPeople().then(function(){
+        injectMonthlyTabs();
+        if(typeof window.loadAdminMonthlyData==='function')return window.loadAdminMonthlyData();
+      }).then(function(){return r;});
+    });
+  };
+  window.renderAdminMonthlyReport.__v12=1;
+})();
+
+(function(){
+  var orig=window.loadAdminMonthlyData;
+  if(typeof orig!=='function'||orig.__v12)return;
+  window.loadAdminMonthlyData=function(){
+    if(window._admMonthlyAllUsers&&window._admMonthlyAllUsers.length){
+      window._admMonthlyManagers=monthlyScope()==='employees'
+        ?window._admMonthlyAllUsers.filter(isEmpU)
+        :window._admMonthlyAllUsers.filter(isMgrU);
+    }
+    return orig.apply(this,arguments);
+  };
+  window.loadAdminMonthlyData.__v12=1;
+})();
+
+(function(){
+  var _adm=window.adminTab;
+  if(!_adm||_adm.__v12mon)return;
+  window.adminTab=function(btn,id){
+    var r=_adm.apply(this,arguments);
+    if(id!=='admMonthly')setMonthlyScope('managers');
+    return r;
+  };
+  window.adminTab.__v12mon=1;
+})();
+
+/* ═════ v13: إشعارات شخصية — لا أحد يرى حضور/انصراف/دخول غيره ═════ */
+(function(){
+  var QUIET=['check_in','check_out','manager_login','extra_visit_check_in','extra_visit_check_out'];
+  function quietType(t){return QUIET.indexOf(t)>=0;}
+  function isAdminRole(){
+    var p=window.currentProfile;
+    return !!p&&(p.role==='admin'||p.role==='superadmin');
+  }
+
+  var _na=window.notifyAdmins;
+  if(typeof _na==='function'){
+    window.notifyAdmins=function(type,title,body,details){
+      if(quietType(type)){
+        if(window.currentUser&&window.currentProfile&&typeof addNotification==='function'){
+          try{
+            var nt=(type==='check_out'||type==='extra_visit_check_out')?'info':'success';
+            addNotification(title||'تنبيه',body||'',nt);
+          }catch(e){}
+        }
+        return Promise.resolve();
+      }
+      return _na.apply(this,arguments);
+    };
+  }
+
+  window.startAdminActivityNotifications=function(){
+    if(!isAdminRole())return;
+    if(_adminNotifUnsubscribe){try{_adminNotifUnsubscribe();}catch(e){}_adminNotifUnsubscribe=null;}
+    _adminNotifInitialized=false;
+    var q=query(collection(db,'notifications'),where('forRole','==','admins'));
+    _adminNotifUnsubscribe=onSnapshot(q,function(snap){
+      var cutoff=Date.now()-7*24*60*60*1000;
+      var added=snap.docChanges().filter(function(c){
+        return c.type==='added'&&!_seenAdminNotifIds.has(c.doc.id);
+      }).map(function(c){
+        return Object.assign({id:c.doc.id},c.doc.data());
+      }).filter(function(n){
+        if(quietType(n.type))return false;
+        if(n.createdAt&&n.createdAt.toMillis&&n.createdAt.toMillis()<cutoff)return false;
+        return true;
+      }).sort(function(a,b){
+        var am=(a.createdAt&&a.createdAt.toMillis)?a.createdAt.toMillis():0;
+        var bm=(b.createdAt&&b.createdAt.toMillis)?b.createdAt.toMillis():0;
+        return am-bm;
+      });
+      for(var i=0;i<added.length;i++){
+        var n=added[i];
+        _seenAdminNotifIds.add(n.id);
+        var time=(n.createdAt&&n.createdAt.toDate)?n.createdAt.toDate():new Date();
+        notifications.unshift({
+          id:Date.now()+Math.floor(Math.random()*1000),
+          sourceId:n.id,
+          title:n.title||'تنبيه إداري',
+          body:n.body||'—',
+          type:n.type==='leave_request'?'warn':'success',
+          time:time,
+          read:false
+        });
+        if(_adminNotifInitialized&&typeof showNativeNotification==='function'){
+          showNativeNotification(n.title||'تنبيه إداري',n.body||'—');
+        }
+      }
+      notifications=notifications.slice(0,50);
+      if(typeof renderNotifications==='function')renderNotifications();
+      if(added.length){
+        var dot=document.getElementById('notifDot');
+        if(dot)dot.classList.remove('hidden');
+      }
+      _adminNotifInitialized=true;
+    },function(e){
+      console.warn('Admin notification listener failed',e);
+      if(typeof toast==='function')toast('تعذّر تشغيل إشعارات الإدارة — تحقق من صلاحيات Firestore','warn',7000);
+    });
+  };
+})();
+
 })();
 </script>
 
