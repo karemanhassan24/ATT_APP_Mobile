@@ -1965,6 +1965,12 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
       var win = iframe.contentWindow, printed = false;
       function doPrint(){
         if(printed) return; printed = true;
+        if(typeof saveFile==='function'||(window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform())){
+          toast('الطباعة لا تحفظ PDF على الموبايل — استخدم «تصدير PDF (تفصيلي)»','warn',7000);
+          if(typeof window.__exportMonthlyDetailedPdfV12==='function'){ window.__exportMonthlyDetailedPdfV12(); return; }
+          printed = false;
+          return;
+        }
         var oldTitle = document.title;
         try{
           document.title = title;
@@ -2071,11 +2077,18 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
   window.DETAILED_REPORT_CSS = A4_CSS;
 
   window.exportAdminMonthlyDetailedPDF = function(){
+    if(typeof window.__exportMonthlyDetailedPdfV12==='function'){
+      return window.__exportMonthlyDetailedPdfV12();
+    }
     try{
       var details = window._admMonthlyDetailsFiltered || window._admMonthlyDetails || [];
       var monthEl = document.getElementById('admReportMonth');
       var month = monthEl ? monthEl.value : '';
       if(!details.length){ toast('لا توجد بيانات','warn'); return; }
+      if(typeof saveFile==='function'||(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform())){
+        toast('جارٍ تحميل مكوّن PDF — انتظر ثانية ثم أعد الضغط','warn',5000);
+        return;
+      }
       var built = buildMonthly(details, month, true);
       openA4Print(built.title, built.body);
     }catch(err){
@@ -5318,14 +5331,41 @@ function updateMonthlySub(){
 var MAX_CANVAS_HEIGHT=12000;
 var MAX_CANVAS_HEIGHT_NATIVE=7000;
 
+function canSavePdfFile(){
+  return typeof saveFile==='function';
+}
 function isNativeApp(){
-  return typeof isCapacitorNative==='function'&&isCapacitorNative();
+  if(typeof isCapacitorNative==='function'&&isCapacitorNative())return true;
+  try{
+    if(window.Capacitor){
+      if(typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform())return true;
+      if(typeof window.Capacitor.getPlatform==='function'){
+        var p=window.Capacitor.getPlatform();
+        if(p&&p!=='web')return true;
+      }
+    }
+  }catch(e0){}
+  return canSavePdfFile();
+}
+function shouldUsePrintPdfFallback(){
+  return !isNativeApp()&&!canSavePdfFile();
 }
 
 function ensurePdfLibsReady(){
-  if(typeof window.ensurePdfLibs==='function')return Promise.resolve(window.ensurePdfLibs());
-  if(window.html2canvas&&window.jspdf)return Promise.resolve();
-  return Promise.reject(new Error('مكتبة PDF غير متاحة — تحقق من الاتصال بالإنترنت'));
+  function ready(){
+    if(typeof window.ensurePdfLibs==='function')return Promise.resolve(window.ensurePdfLibs());
+    if(window.html2canvas&&window.jspdf)return Promise.resolve();
+    return Promise.reject(new Error('مكتبة PDF غير متاحة — تحقق من الاتصال بالإنترنت'));
+  }
+  if(window.html2canvas&&window.jspdf)return ready();
+  return new Promise(function(resolve,reject){
+    var n=0;
+    var t=setInterval(function(){
+      n++;
+      if(window.html2canvas&&window.jspdf){clearInterval(t);ready().then(resolve,reject);}
+      else if(n>=60){clearInterval(t);reject(new Error('تعذّر تحميل مكتبة PDF — تحقق من الإنترنت وأعد فتح التطبيق'));}
+    },250);
+  });
 }
 
 function showPdfExportVeil(){
@@ -5515,7 +5555,7 @@ function exportMonthlyDetailedPdf(){
   var title=(built.title||'التقرير الشهري التفصيلي')+(scopeKey==='employees'?' — الموظفين':' — المديرين');
   return exportHtmlToPdfFile(built.body,title,month,scopeKey).catch(function(err){
     console.warn('PDF export failed',err);
-    if(!isNativeApp()&&window.__A4&&typeof window.__A4.openA4Print==='function'){
+    if(shouldUsePrintPdfFallback()&&window.__A4&&typeof window.__A4.openA4Print==='function'){
       toast('تعذّر حفظ الملف مباشرة — افتح الطباعة واختر «حفظ كـ PDF»','warn',7000);
       window.__A4.openA4Print(title,built.body);
       return;
@@ -5524,6 +5564,7 @@ function exportMonthlyDetailedPdf(){
   });
 }
 
+window.__exportMonthlyDetailedPdfV12=exportMonthlyDetailedPdf;
 window.exportAdminMonthlyDetailedPDF=function(){return exportMonthlyDetailedPdf();};
 
 (function(){
@@ -5708,6 +5749,20 @@ if(typeof _showLocModal==='function'&&!_showLocModal.__v14){
     return _showLocModal.apply(this,arguments);
   };
   window.showLocModal.__v14=1;
+}
+if(window.__A4&&typeof window.__A4.openA4Print==='function'&&!window.__A4.openA4Print.__pdfMobileBlock){
+  var _openA4Print=window.__A4.openA4Print;
+  window.__A4.openA4Print=function(title,innerBody){
+    if((typeof saveFile==='function'||(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()))&&typeof exportMonthlyDetailedPdf==='function'){
+      return exportMonthlyDetailedPdf();
+    }
+    return _openA4Print.apply(this,arguments);
+  };
+  window.__A4.openA4Print.__pdfMobileBlock=1;
+}
+if(typeof exportMonthlyDetailedPdf==='function'){
+  window.__exportMonthlyDetailedPdfV12=exportMonthlyDetailedPdf;
+  window.exportAdminMonthlyDetailedPDF=function(){return exportMonthlyDetailedPdf();};
 }
 })();
 
