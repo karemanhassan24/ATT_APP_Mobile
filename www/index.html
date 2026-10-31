@@ -2086,7 +2086,18 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
       var month = monthEl ? monthEl.value : '';
       if(!details.length){ toast('لا توجد بيانات','warn'); return; }
       if(typeof saveFile==='function'||(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform())){
-        toast('جارٍ تحميل مكوّن PDF — انتظر ثانية ثم أعد الضغط','warn',5000);
+        var tries=0;
+        var wait=setInterval(function(){
+          tries++;
+          if(typeof window.__exportMonthlyDetailedPdfV12==='function'){
+            clearInterval(wait);
+            window.__exportMonthlyDetailedPdfV12();
+          }else if(tries>=30){
+            clearInterval(wait);
+            toast('تعذّر تحميل مكوّن PDF — أغلق التطبيق وافتحه من جديد','danger',8000);
+          }
+        },200);
+        toast('⏳ جارٍ تجهيز PDF...','info',2500);
         return;
       }
       var built = buildMonthly(details, month, true);
@@ -2591,6 +2602,11 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
   function printBuilt(b){
     var a4 = A4();
     if(!b || !a4){ try{ toast('تعذّر تجهيز التقرير','danger'); }catch(e){} return; }
+    if(typeof window.exportReportPdf==='function'&&(typeof saveFile==='function'||(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()))){
+      return window.exportReportPdf(b.body,b.title).catch(function(err){
+        toast('خطأ PDF: '+(err&&err.message||err),'danger',8000);
+      });
+    }
     a4.openA4Print(b.title, b.body);
   }
   window.v7PrintPerson = function(user, leaves, policy, period, mode){ printBuilt(buildPersonReport(user, leaves, policy, period, mode)); };
@@ -5508,11 +5524,18 @@ function deliverPdfBlob(fname,blob){
   return Promise.resolve();
 }
 
-function exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,attempt){
+function pdfSafeFilename(title,fallback){
+  var s=String(title||fallback||'report').replace(/[\\/:*?"<>|]/g,'_').replace(/\s+/g,'_').trim();
+  if(!s)s='report';
+  if(s.length>96)s=s.slice(0,96);
+  return /\.pdf$/i.test(s)?s:s+'.pdf';
+}
+
+function exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,attempt,customFname){
   attempt=attempt||0;
   var wrap=null;
   var suffix=scopeKey==='employees'?'الموظفين':'المديرين';
-  var fname='التقرير_الشهري_التفصيلي_'+(month||'report')+'_'+suffix+'.pdf';
+  var fname=customFname||('التقرير_الشهري_التفصيلي_'+(month||'report')+'_'+suffix+'.pdf');
   var maxH=isNativeApp()?MAX_CANVAS_HEIGHT_NATIVE:MAX_CANVAS_HEIGHT;
   return ensurePdfLibsReady().then(function(){
     toast('⏳ جارٍ إعداد ملف PDF...','info');
@@ -5535,7 +5558,7 @@ function exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,attempt){
     if(attempt<1&&wrap){
       if(wrap.parentNode)wrap.parentNode.removeChild(wrap);
       wrap=null;
-      return exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,1);
+      return exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,1,customFname);
     }
     throw err;
   }).finally(function(){
@@ -5544,6 +5567,9 @@ function exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,attempt){
   });
 }
 
+function exportReportPdf(bodyHtml,title,filename){
+  return exportHtmlToPdfFile(bodyHtml,title||'','',null,0,filename?pdfSafeFilename(filename,title):pdfSafeFilename(title,'report'));
+}
 
 function exportMonthlyDetailedPdf(){
   var details=window._admMonthlyDetailsFiltered||window._admMonthlyDetails||[];
@@ -5565,7 +5591,16 @@ function exportMonthlyDetailedPdf(){
 }
 
 window.__exportMonthlyDetailedPdfV12=exportMonthlyDetailedPdf;
+window.exportReportPdf=exportReportPdf;
 window.exportAdminMonthlyDetailedPDF=function(){return exportMonthlyDetailedPdf();};
+window.appPdf={
+  isNative:isNativeApp,
+  canSave:canSavePdfFile,
+  usePrintFallback:shouldUsePrintPdfFallback,
+  exportHtml:exportHtmlToPdfFile,
+  exportReport:exportReportPdf,
+  exportMonthlyDetailed:exportMonthlyDetailedPdf
+};
 
 (function(){
   var orig=window.renderAdminMonthlyReport;
@@ -5753,8 +5788,8 @@ if(typeof _showLocModal==='function'&&!_showLocModal.__v14){
 if(window.__A4&&typeof window.__A4.openA4Print==='function'&&!window.__A4.openA4Print.__pdfMobileBlock){
   var _openA4Print=window.__A4.openA4Print;
   window.__A4.openA4Print=function(title,innerBody){
-    if((typeof saveFile==='function'||(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()))&&typeof exportMonthlyDetailedPdf==='function'){
-      return exportMonthlyDetailedPdf();
+    if((typeof saveFile==='function'||(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()))&&typeof window.exportReportPdf==='function'){
+      return window.exportReportPdf(innerBody,title);
     }
     return _openA4Print.apply(this,arguments);
   };
@@ -5762,8 +5797,18 @@ if(window.__A4&&typeof window.__A4.openA4Print==='function'&&!window.__A4.openA4
 }
 if(typeof exportMonthlyDetailedPdf==='function'){
   window.__exportMonthlyDetailedPdfV12=exportMonthlyDetailedPdf;
+  window.exportReportPdf=exportReportPdf;
   window.exportAdminMonthlyDetailedPDF=function(){return exportMonthlyDetailedPdf();};
 }
+var _printAdminMonthlyA4=window.printAdminMonthlyA4;
+if(typeof _printAdminMonthlyA4==='function'){
+  window.printAdminMonthlyA4=function(){
+    if(!shouldUsePrintPdfFallback()&&typeof exportMonthlyDetailedPdf==='function')return exportMonthlyDetailedPdf();
+    return _printAdminMonthlyA4.apply(this,arguments);
+  };
+}
+})();
+
 })();
 
 </script>
