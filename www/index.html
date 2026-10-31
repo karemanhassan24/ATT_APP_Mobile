@@ -5310,6 +5310,11 @@ function updateMonthlySub(){
 }
 
 var MAX_CANVAS_HEIGHT=12000;
+var MAX_CANVAS_HEIGHT_NATIVE=7000;
+
+function isNativeApp(){
+  return typeof isCapacitorNative==='function'&&isCapacitorNative();
+}
 
 function ensurePdfLibsReady(){
   if(typeof window.ensurePdfLibs==='function')return Promise.resolve(window.ensurePdfLibs());
@@ -5317,51 +5322,91 @@ function ensurePdfLibsReady(){
   return Promise.reject(new Error('مكتبة PDF غير متاحة — تحقق من الاتصال بالإنترنت'));
 }
 
-function exportHtmlToPdfFile(bodyHtml,title,month,scopeKey){
+function buildPdfRenderWrap(bodyHtml){
+  var css=window.DETAILED_REPORT_CSS||(window.__A4&&window.__A4.A4_CSS)||'';
+  var wrap=document.createElement('div');
+  wrap.className='pdf-render-root';
+  wrap.style.cssText='position:fixed;top:0;left:0;right:0;width:100%;max-width:820px;margin:0 auto;background:#fff;direction:rtl;z-index:2147483000;opacity:0.02;pointer-events:none;overflow:visible';
+  wrap.innerHTML='<style>'+css+' body{margin:0;padding:12px 14px} .title{font-size:20px} table{font-size:11px}</style><div class="sheet">'+bodyHtml+'</div>';
+  document.body.appendChild(wrap);
+  return wrap;
+}
+
+function canvasToPdfBlob(canvas,quality){
+  var JsPDF=(window.jspdf&&window.jspdf.jsPDF)||(window.jspdf&&window.jspdf.default)||window.jsPDF;
+  if(!JsPDF)throw new Error('مكتبة jsPDF غير محمّلة');
+  if(!canvas||!canvas.width||!canvas.height)throw new Error('تعذّر رسم التقرير — جرّب مديراً واحداً من الفلتر');
+  var pdf=new JsPDF('p','mm','a4');
+  var pageW=pdf.internal.pageSize.getWidth();
+  var pageH=pdf.internal.pageSize.getHeight();
+  var imgW=pageW;
+  var imgH=canvas.height*imgW/canvas.width;
+  var q=quality==null?0.88:quality;
+  var imgData;
+  try{ imgData=canvas.toDataURL('image/jpeg',q); }
+  catch(e1){ imgData=canvas.toDataURL('image/png'); }
+  var fmt=imgData.indexOf('image/png')>=0?'PNG':'JPEG';
+  var heightLeft=imgH;
+  var position=0;
+  pdf.addImage(imgData,fmt,0,position,imgW,imgH);
+  heightLeft-=pageH;
+  while(heightLeft>0){
+    position=heightLeft-imgH;
+    pdf.addPage();
+    pdf.addImage(imgData,fmt,0,position,imgW,imgH);
+    heightLeft-=pageH;
+  }
+  return pdf.output('blob');
+}
+
+function deliverPdfBlob(fname,blob){
+  if(typeof saveFile==='function'){
+    return Promise.resolve(saveFile(fname,blob)).then(function(){
+      if(isNativeApp())toast('📤 اختر «حفظ إلى الملفات» أو Drive من قائمة المشاركة','info',7000);
+    });
+  }
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download=fname;a.click();
+  setTimeout(function(){URL.revokeObjectURL(url);},1500);
+  return Promise.resolve();
+}
+
+function exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,attempt){
+  attempt=attempt||0;
   var wrap=null;
+  var suffix=scopeKey==='employees'?'الموظفين':'المديرين';
+  var fname='التقرير_الشهري_التفصيلي_'+(month||'report')+'_'+suffix+'.pdf';
+  var maxH=isNativeApp()?MAX_CANVAS_HEIGHT_NATIVE:MAX_CANVAS_HEIGHT;
   return ensurePdfLibsReady().then(function(){
     toast('⏳ جارٍ إعداد ملف PDF...','info');
-    var css=window.DETAILED_REPORT_CSS||(window.__A4&&window.__A4.A4_CSS)||'';
-    wrap=document.createElement('div');
-    wrap.style.cssText='position:fixed;top:0;left:-9999px;width:1000px;background:#fff;direction:rtl;z-index:-1';
-    wrap.innerHTML='<style>'+css+' body{margin:0;padding:16px 18px} .title{font-size:22px}</style><div class="sheet">'+bodyHtml+'</div>';
-    document.body.appendChild(wrap);
-    return new Promise(function(r){setTimeout(r,120);});
+    wrap=buildPdfRenderWrap(bodyHtml);
+    return new Promise(function(r){setTimeout(r,isNativeApp()?280:150);});
   }).then(function(){
     var h=wrap.scrollHeight||1200;
-    var scale=Math.min(2,Math.max(0.75,MAX_CANVAS_HEIGHT/Math.max(h,1)));
-    return html2canvas(wrap,{scale:scale,useCORS:true,backgroundColor:'#ffffff',logging:false,width:1000});
+    var scale=Math.min(isNativeApp()?1.25:2,Math.max(0.5,maxH/Math.max(h,1)));
+    var opts={scale:scale,useCORS:true,backgroundColor:'#ffffff',logging:false,windowWidth:820};
+    return html2canvas(wrap,opts).catch(function(err){
+      if(attempt>=1)throw err;
+      return html2canvas(wrap,{scale:Math.min(0.85,scale),useCORS:true,backgroundColor:'#ffffff',logging:false,windowWidth:820});
+    });
   }).then(function(canvas){
-      if(!canvas||!canvas.width||!canvas.height)throw new Error('التقرير كبير جداً — صفِّ على مدير واحد ثم صدّر');
-    var JsPDF=(window.jspdf&&window.jspdf.jsPDF)||(window.jspdf&&window.jspdf.default)||window.jsPDF;
-      if(!JsPDF)throw new Error('مكتبة jsPDF غير محمّلة');
-      var pdf=new JsPDF('p','mm','a4');
-      var pageW=pdf.internal.pageSize.getWidth();
-      var pageH=pdf.internal.pageSize.getHeight();
-      var imgW=pageW;
-      var imgH=canvas.height*imgW/canvas.width;
-      var imgData=canvas.toDataURL('image/jpeg',0.92);
-      var heightLeft=imgH;
-      var position=0;
-      pdf.addImage(imgData,'JPEG',0,position,imgW,imgH);
-      heightLeft-=pageH;
-      while(heightLeft>0){
-        position=heightLeft-imgH;
-        pdf.addPage();
-        pdf.addImage(imgData,'JPEG',0,position,imgW,imgH);
-        heightLeft-=pageH;
-      }
-      var suffix=scopeKey==='employees'?'الموظفين':'المديرين';
-      var fname='التقرير_الشهري_التفصيلي_'+(month||'report')+'_'+suffix+'.pdf';
-    var blob=pdf.output('blob');
-    if(typeof saveFile==='function')return saveFile(fname,blob);
-    pdf.save(fname);
+    var blob=canvasToPdfBlob(canvas,attempt>=1?0.75:0.88);
+    return deliverPdfBlob(fname,blob);
   }).then(function(){
     toast('✅ تم تصدير PDF','success');
+  }).catch(function(err){
+    if(attempt<1&&wrap){
+      if(wrap.parentNode)wrap.parentNode.removeChild(wrap);
+      wrap=null;
+      return exportHtmlToPdfFile(bodyHtml,title,month,scopeKey,1);
+    }
+    throw err;
   }).finally(function(){
     if(wrap&&wrap.parentNode)wrap.parentNode.removeChild(wrap);
   });
 }
+
 
 function exportMonthlyDetailedPdf(){
   var details=window._admMonthlyDetailsFiltered||window._admMonthlyDetails||[];
@@ -5373,12 +5418,12 @@ function exportMonthlyDetailedPdf(){
   var title=(built.title||'التقرير الشهري التفصيلي')+(scopeKey==='employees'?' — الموظفين':' — المديرين');
   return exportHtmlToPdfFile(built.body,title,month,scopeKey).catch(function(err){
     console.warn('PDF export failed',err);
-    if(window.__A4&&typeof window.__A4.openA4Print==='function'){
+    if(!isNativeApp()&&window.__A4&&typeof window.__A4.openA4Print==='function'){
       toast('تعذّر حفظ الملف مباشرة — افتح الطباعة واختر «حفظ كـ PDF»','warn',7000);
       window.__A4.openA4Print(title,built.body);
       return;
     }
-    toast('خطأ PDF: '+(err&&err.message||err),'danger',8000);
+    toast('خطأ PDF: '+(err&&err.message||err)+' — جرّب تصفية مدير واحد أو إعادة فتح التطبيق','danger',9000);
   });
 }
 
