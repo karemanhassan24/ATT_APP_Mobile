@@ -649,10 +649,10 @@ th{background:#f7faf9;color:#3d5a5c;font-weight:800;border-bottom:1px solid var(
   body.is-admin .topbar,.topbar{height:auto!important;min-height:0!important;align-items:flex-start;padding:calc(8px + var(--safe-top)) 12px 10px!important;flex-wrap:wrap;gap:8px}
   body.is-admin .topbar-left{flex:1 1 100%;min-width:0}
   body.is-admin .topbar-right{flex:1 1 100%;width:100%;justify-content:flex-end}
-  body.is-admin .main{display:block;max-width:100%;padding:14px 12px calc(20px + var(--safe-bottom))}
+  body.is-admin .main{display:block;max-width:100%;padding:14px 12px calc(96px + var(--safe-bottom))}
   body.is-admin .admin-tabs{position:sticky;top:0;z-index:45;width:auto;flex-direction:row;overflow-x:auto;margin:0 0 14px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;border-radius:12px}
   body.is-admin .admin-tab{width:auto;white-space:nowrap;scroll-snap-align:start;flex-shrink:0}
-  body.is-admin .admin-tabs ~ *{overflow-x:hidden;max-width:100%}
+  body.is-admin .admin-tabs ~ *{max-width:100%;min-width:0}
 }
 
 /* REPORTS — شاشة + طباعة A4 */
@@ -1965,9 +1965,15 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
       var win = iframe.contentWindow, printed = false;
       function doPrint(){
         if(printed) return; printed = true;
-        if(typeof saveFile==='function'||(window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform())){
-          toast('الطباعة لا تحفظ PDF على الموبايل — استخدم «تصدير PDF (تفصيلي)»','warn',7000);
-          if(typeof window.__exportMonthlyDetailedPdfV12==='function'){ window.__exportMonthlyDetailedPdfV12(); return; }
+        var nativePdf = typeof saveFile==='function'||(window.Capacitor&&typeof window.Capacitor.isNativePlatform==='function'&&window.Capacitor.isNativePlatform());
+        if(nativePdf){
+          if(typeof window.exportReportPdf==='function'){
+            window.exportReportPdf(innerBody, title).catch(function(err){
+              toast('خطأ PDF: '+(err&&err.message||err),'danger',8000);
+            });
+            return;
+          }
+          toast('تعذّر حفظ PDF على هذا الجهاز','danger',6000);
           printed = false;
           return;
         }
@@ -2149,7 +2155,13 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
           {role:'المدير المباشر', job:'المدير المباشر'},
           {role:'إدارة الموارد البشرية', job:'مدير الموارد البشرية'}
         ])+footHtml(ctx);
-      openA4Print('التقرير الشخصي — '+ml, body);
+      var pdfTitle = 'التقرير الشخصي — '+ml;
+      if(typeof window.exportReportPdf==='function'&&(typeof saveFile==='function'||(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()))){
+        return window.exportReportPdf(body, pdfTitle).catch(function(err){
+          toast('خطأ PDF: '+(err&&err.message||err),'danger',8000);
+        });
+      }
+      openA4Print(pdfTitle, body);
     }catch(err){
       toast('خطأ في إعداد التقرير: '+(err && err.message ? err.message : err),'danger',8000);
     }
@@ -2801,6 +2813,14 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
   function mgrUsers(){
     return ADM.users.filter(function(u){ return u.role === 'manager' && u.userType !== 'employee'; }).sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||''),'ar'); });
   }
+  /** مديرون + موظفون (لتبويبي رصيد الإجازات والأذونات) */
+  function leaveBalanceUsers(){
+    return ADM.users.filter(function(u){
+      if(u.disabled) return false;
+      if(u.userType === 'employee') return true;
+      return u.role === 'manager' && u.userType !== 'employee';
+    }).sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||''),'ar'); });
+  }
   function userById(id){ for(var i=0;i<ADM.users.length;i++){ if(ADM.users[i].id === id) return ADM.users[i]; } return null; }
   function leavesOf(uid){ return ADM.leaves.filter(function(l){ return l.uid === uid; }); }
   function nameLink(u, text){
@@ -2808,7 +2828,10 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
   }
   function unsettledAll(){
     var out = [];
-    mgrUsers().forEach(function(u){ var s = summarize(u, leavesOf(u.id), ADM.policy); s.unsettledList.forEach(function(l){ out.push(l); }); });
+    leaveBalanceUsers().forEach(function(u){
+      var s = summarize(u, leavesOf(u.id), ADM.policy);
+      s.unsettledList.forEach(function(l){ out.push(l); });
+    });
     return out;
   }
 
@@ -2936,22 +2959,23 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
 
   /* — تبويب رصيد الإجازات: التقرير المجمع (اعتيادية / عارضة / إجمالي / استهلاك) — */
   function panelBal(){
-    var rows = mgrUsers().map(function(u){ return { u:u, s:summarize(u, leavesOf(u.id), ADM.policy) }; });
+    var rows = leaveBalanceUsers().map(function(u){ return { u:u, s:summarize(u, leavesOf(u.id), ADM.policy) }; });
     var tA = 0, tC = 0, tR = 0, tRC = 0, tP = 0, tU = 0;
     rows.forEach(function(r){ tA += r.s.usedA; tC += r.s.usedC; tR += r.s.remaining; tRC += r.s.remainingC; tP += r.s.comp; tU += r.s.unsettled; });
     var html = '<div class="lv7-kpis">'+
-      '<div class="lv7-kpi"><b>'+rows.length+'</b><span>عدد المديرين</span></div>'+
+      '<div class="lv7-kpi"><b>'+rows.length+'</b><span>مديرون + موظفون</span></div>'+
       '<div class="lv7-kpi"><b>'+tA+'</b><span>اعتيادية مستخدمة</span></div>'+
       '<div class="lv7-kpi warn"><b>'+tC+'</b><span>عارضة مستخدمة</span></div>'+
       '<div class="lv7-kpi ok"><b>'+tR+'</b><span>متبقي اعتيادي</span></div>'+
       '<div class="lv7-kpi ok"><b>'+tRC+'</b><span>متبقي عارضة</span></div></div>';
     html += '<div class="card"><div class="lv7-h">📊 التقرير المجمع — رصيد الإجازات</div>'+
-      '<div class="lv7-s">للاعتيادية رصيد وللعارضة رصيد مستقل • اضغط على اسم المدير لفتح صفحة إجازاته وأذوناته</div>';
+      '<div class="lv7-s">للاعتيادية رصيد وللعارضة رصيد مستقل • اضغط على الاسم لفتح صفحة الإجازات والأذونات (مدير أو موظف)</div>';
     if(tU > 0) html += '<div class="lv7-note">⚠️ يوجد '+tU+' يوم إجازة عارضة قديمة معتمدة لم تُخصم من الرصيد بعد — استخدم زر «تسوية عارضة قديمة» بالأعلى.</div>';
-    html += '<div class="tbl-wrap"><table><thead><tr><th>المدير</th><th>الموقع</th><th>اعتيادية مستخدمة</th><th>عارضة مستخدمة</th><th>متبقي اعتيادي</th><th>متبقي عارضة</th><th>بدل راحة</th><th>نسبة استهلاك الاعتيادي</th></tr></thead><tbody>';
+    html += '<div class="tbl-wrap"><table><thead><tr><th>الاسم</th><th>الموقع</th><th>اعتيادية مستخدمة</th><th>عارضة مستخدمة</th><th>متبقي اعتيادي</th><th>متبقي عارضة</th><th>بدل راحة</th><th>نسبة استهلاك الاعتيادي</th></tr></thead><tbody>';
     html += rows.length ? rows.map(function(r){
       var s = r.s;
-      return '<tr><td style="text-align:right">'+nameLink(r.u)+(r.u.disabled ? ' <span class="badge badge-gray">موقوف</span>' : '')+(s.unsettled ? ' <span class="lv7-pill w" title="عارضة قديمة غير مخصومة">⚠️ '+s.unsettled+'</span>' : '')+'</td>'+
+      var empTag = r.u.userType === 'employee' ? ' <span class="v11-tag">موظف</span>' : '';
+      return '<tr><td style="text-align:right">'+nameLink(r.u)+(empTag)+(r.u.disabled ? ' <span class="badge badge-gray">موقوف</span>' : '')+(s.unsettled ? ' <span class="lv7-pill w" title="عارضة قديمة غير مخصومة">⚠️ '+s.unsettled+'</span>' : '')+'</td>'+
         '<td style="font-size:12px;color:var(--text2)">'+esc(r.u.site)+'</td><td style="color:var(--accent);font-weight:700">'+s.usedA+'</td><td style="color:var(--warn);font-weight:700">'+s.usedC+'</td>'+
         '<td style="font-weight:700;color:'+remClass(s.remaining)+'">'+s.remaining+' <small style="color:var(--text3)">/ '+s.total+'</small></td>'+
         '<td style="font-weight:700;color:'+remClass(s.remainingC)+'">'+s.remainingC+' <small style="color:var(--text3)">/ '+s.totalC+'</small></td><td>'+s.comp+'</td>'+
@@ -2964,17 +2988,18 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
   /* — تبويب الأذونات والمأموريات (الشهر) — */
   function panelPerm(){
     var m = ADM.month;
-    var rows = mgrUsers().map(function(u){ return { u:u, ps:permStats(leavesOf(u.id), m) }; });
+    var rows = leaveBalanceUsers().map(function(u){ return { u:u, ps:permStats(leavesOf(u.id), m) }; });
     var T = { late:0, early:0, q:0, pend:0, mis:0 };
     rows.forEach(function(r){ T.late += r.ps.late; T.early += r.ps.early; T.q += r.ps.quotaUsed; T.pend += r.ps.pendingQ + r.ps.pendingM; T.mis += r.ps.mission; });
     var html = '<div class="card"><div class="lv7-h">🕐 تقرير الأذونات والمأموريات — '+esc(monthLabel(m))+'</div>'+
-      '<div class="lv7-s">الحد الأقصى '+quota()+' أذونات (تأخير + انصراف مبكر) لكل مدير شهريًا — يتجدد تلقائيًا بدون ترحيل. المأمورية لا تُخصم من الأذونات ولا لها عدد.</div>'+
+      '<div class="lv7-s">الحد الأقصى '+quota()+' أذونات (تأخير + انصراف مبكر) لكل شخص شهريًا — يتجدد تلقائيًا بدون ترحيل. المأمورية لا تُخصم من الأذونات ولا لها عدد.</div>'+
       '<div class="lv7-bar"><label class="field-label" style="margin:0">الشهر:</label><input type="month" id="lvMonth" value="'+escRaw(m)+'" onchange="lvSetMonth(this.value)"/>'+
       '<span class="sp"></span><button class="btn-primary" style="font-size:12px;padding:7px 14px" onclick="openAddPermissionForManager()">➕ إضافة إذن / مأمورية</button></div>'+
-      '<div class="tbl-wrap"><table><thead><tr><th>المدير</th><th>الموقع</th><th>إذن تأخير</th><th>انصراف مبكر</th><th>مجموع الأذونات</th><th>متبقي</th><th>قيد الانتظار</th><th>مأموريات</th><th>إجراء</th></tr></thead><tbody>';
+      '<div class="tbl-wrap"><table><thead><tr><th>الاسم</th><th>الموقع</th><th>إذن تأخير</th><th>انصراف مبكر</th><th>مجموع الأذونات</th><th>متبقي</th><th>قيد الانتظار</th><th>مأموريات</th><th>إجراء</th></tr></thead><tbody>';
     html += rows.length ? rows.map(function(r){
       var p = r.ps, q = p.quotaUsed;
-      return '<tr><td style="text-align:right">'+nameLink(r.u)+'</td><td style="font-size:12px;color:var(--text2)">'+esc(r.u.site)+'</td>'+
+      var empTag = r.u.userType === 'employee' ? ' <span class="v11-tag">موظف</span>' : '';
+      return '<tr><td style="text-align:right">'+nameLink(r.u)+empTag+'</td><td style="font-size:12px;color:var(--text2)">'+esc(r.u.site)+'</td>'+
         '<td>'+p.late+'</td><td>'+p.early+'</td>'+
         '<td><b style="color:'+(q >= quota() ? 'var(--danger)' : 'var(--accent)')+'">'+q+'</b> من '+quota()+(p.legacy ? '<div style="font-size:10px;color:var(--text3)">منها '+p.legacy+' قديم</div>' : '')+'</td>'+
         '<td style="font-weight:700;color:'+(p.remaining > 0 ? 'var(--success)' : 'var(--danger)')+'">'+p.remaining+'</td>'+
@@ -4649,7 +4674,8 @@ function isMgrRole(u){return !!u&&u.role==='manager'&&!isEmp(u)&&!u.disabled;}
     '.v11-pick b{display:block;font-size:13px}.v11-pick span{font-size:12px;color:var(--text2)}',
     '/* ── v12: موبايل — جداول + لوحة + إجازات ── */',
     '@media(max-width:768px){',
-    '.tbl-wrap{overflow-x:auto!important;overflow-y:visible;-webkit-overflow-scrolling:touch;max-width:100%;touch-action:pan-x}',
+    '.tbl-wrap,.report-table-wrap,.heatmap-wrap{overflow-x:auto!important;overflow-y:visible;-webkit-overflow-scrolling:touch;max-width:100%;overscroll-behavior-x:contain}',
+    '.tbl-wrap{margin-bottom:12px}',
     '.tbl-wrap table{min-width:max(100%,920px);width:max-content;max-width:none}',
     '.tbl-wrap td,.tbl-wrap th{overflow-wrap:normal;word-break:normal;vertical-align:top;hyphens:none}',
     '.tbl-wrap th{white-space:nowrap}',
@@ -4700,7 +4726,8 @@ function isMgrRole(u){return !!u&&u.role==='manager'&&!isEmp(u)&&!u.disabled;}
     '.fc-row{align-items:flex-start}',
     '.fc-row button{margin-right:0!important;width:100%;margin-top:6px}',
     '.section-title{font-size:13px;margin-bottom:10px;line-height:1.4}',
-    'body.is-admin .main{padding-left:10px!important;padding-right:10px!important}',
+    'body.is-admin .main{padding-left:10px!important;padding-right:10px!important;padding-bottom:calc(100px + var(--safe-bottom))!important}',
+    '.main{padding-bottom:calc(100px + var(--safe-bottom))!important}',
     '}',
     '@media(max-width:420px){',
     '.stats-row{grid-template-columns:1fr!important}',
