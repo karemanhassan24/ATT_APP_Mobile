@@ -5857,28 +5857,20 @@ function visitSiteLine(v){
   return p.join(' — ');
 }
 
-window.applyExtraVisitDisplay=function(rec,mgr){
+window.applyExtraVisitDisplay=function(rec,mgr,opts){
+  opts=opts||{};
+  var punchUi=!!opts.punchUi;
   if(!rec)return rec;
   var visits=rec.extraVisits;
   if(!visits||!visits.length)return rec;
-  var open=null,lastWithIn=null,i,v;
+  var open=null,lastWithIn=null,lastDone=null,i,v;
   for(i=0;i<visits.length;i++){
     v=visits[i];
     if(v.checkIn)lastWithIn=v;
+    if(v.checkIn&&v.checkOut)lastDone=v;
     if(v.checkIn&&!v.checkOut)open=v;
   }
   if(!lastWithIn)return rec;
-
-  if(!rec.checkIn){
-    rec._fromExtraVisitOnly=true;
-    rec.checkIn=open?open.checkIn:lastWithIn.checkIn;
-    if(!open&&lastWithIn.checkOut){
-      rec.checkOut=lastWithIn.checkOut;
-      if(lastWithIn.workHours)rec.workHours=lastWithIn.workHours;
-    }
-    if(!rec.inAddress&&lastWithIn.address)rec.inAddress=lastWithIn.address;
-    if(!rec.status||rec.status==='absent')rec.status=open?'checkedin':'present';
-  }
 
   var noteParts=[];
   visits.forEach(function(vx,idx){
@@ -5886,12 +5878,27 @@ window.applyExtraVisitDisplay=function(rec,mgr){
     noteParts.push('زيارة '+(idx+1)+': دخول '+vx.checkIn+(vx.checkOut?' · خروج '+vx.checkOut:' (جارٍ)')+(visitSiteLine(vx)?' — '+visitSiteLine(vx):''));
   });
   rec.extraVisitSummary=noteParts.join(' | ');
-  var loc=(open&&open.address)||lastWithIn.address||'';
+  var loc=(open&&open.address)||(lastDone&&lastDone.address)||lastWithIn.address||'';
   var locNote='📍 حضور من موقع آخر'+(loc?': '+loc:'')+(open&&open.note?' — '+open.note:'');
-  if(rec._fromExtraVisitOnly||!rec.locationStatus)rec.locationStatus=locNote;
-  if(rec._fromExtraVisitOnly){
+
+  if(!rec.checkIn&&!punchUi){
+    rec._fromExtraVisitOnly=true;
+    rec.checkIn=open?open.checkIn:(lastDone?lastDone.checkIn:lastWithIn.checkIn);
+    if(!open&&(lastDone||lastWithIn.checkOut)){
+      var done=lastDone||lastWithIn;
+      rec.checkOut=done.checkOut;
+      if(done.workHours)rec.workHours=done.workHours;
+    }
+    if(!rec.inAddress&&(lastDone||lastWithIn).address)rec.inAddress=(lastDone||lastWithIn).address;
+    if(!rec.status||rec.status==='absent')rec.status=open?'checkedin':'present';
+    if(!rec.locationStatus)rec.locationStatus=locNote;
     rec.outsideWorkRange=true;
     if(!rec.inLat&&lastWithIn.inLat!=null){rec.inLat=lastWithIn.inLat;rec.inLng=lastWithIn.inLng;}
+  }else if(punchUi&&!rec.checkIn){
+    if(lastDone||rec.presentFromExtraVisit||rec.extraVisitDayComplete){
+      rec._extraVisitDayComplete=true;
+    }
+    if(open)rec._extraVisitOpen=true;
   }
   return rec;
 };
@@ -5926,13 +5933,20 @@ window.expandAttendanceForExtraVisits=function(list){
   return out;
 };
 
+function countsAsAttendanceDay(r){
+  if(!r)return false;
+  if(r.checkIn||r.checkOut)return true;
+  if(r.presentFromExtraVisit||r.extraVisitDayComplete)return true;
+  return (r.extraVisits||[]).some(function(v){return v.checkIn&&v.checkOut;});
+}
+
 function enrichRecords(arr){
   return (arr||[]).map(function(r){
     var c=Object.assign({},r);
     applyExtraVisitDisplay(c);
     return c;
   }).filter(function(r){
-    return r.checkIn||r.checkOut||(r.extraVisits&&r.extraVisits.length)||['present','checkedin','late','partial'].indexOf(r.status)>=0;
+    return countsAsAttendanceDay(r)||(r.extraVisits&&r.extraVisits.length)||['present','checkedin','late','partial'].indexOf(r.status)>=0;
   });
 }
 
@@ -5945,7 +5959,14 @@ function syncExtraVisitStatus(uid,date){
     var visits=d.extraVisits||[];
     if(!visits.some(function(v){return v.checkIn;}))return;
     var open=visits.some(function(v){return v.checkIn&&!v.checkOut;});
-    return updateDoc(doc(db,'attendance/'+uid+'/records/'+date),{status:open?'checkedin':'present'});
+    var patch={status:open?'checkedin':'present',updatedAt:typeof serverTimestamp==='function'?serverTimestamp():new Date()};
+    if(open)patch.extraVisitActive=true;
+    else{
+      patch.extraVisitActive=false;
+      patch.presentFromExtraVisit=true;
+      patch.extraVisitDayComplete=true;
+    }
+    return updateDoc(doc(db,'attendance/'+uid+'/records/'+date),patch);
   }).catch(function(){});
 }
 
@@ -5964,6 +5985,43 @@ function wrapExtraVisitPunch(name){
 wrapExtraVisitPunch('doExtraVisitCheckIn');
 wrapExtraVisitPunch('doExtraVisitCheckOut');
 
+if(typeof window.doCheckIn==='function'&&!window.doCheckIn.__v16){
+  var _doCheckIn=window.doCheckIn;
+  window.doCheckIn=function(){
+    if(!window.currentUser||typeof getDoc!=='function')return _doCheckIn.apply(this,arguments);
+    var today=typeof todayStr==='function'?todayStr():'';
+    var ref=doc(db,'attendance/'+currentUser.uid+'/records/'+today);
+    return getDoc(ref).then(function(snap){
+      var d=snap.exists()?snap.data():{};
+      if(d.checkIn){toast('سجّلت حضوراً من موقعك الأساسي مسبقاً','warn');return;}
+      if(d.checkOut){toast('تم إغلاق يومك — لا يمكن تسجيل حضور جديد','warn');return;}
+      if((d.extraVisits||[]).some(function(v){return v.checkIn&&!v.checkOut;})){
+        toast('أنهِ زيارة الموقع الآخر (تسجيل خروج) قبل حضور الموقع الأساسي','warn',6500);
+        return;
+      }
+      var _setDoc=window.setDoc;
+      window.setDoc=function(r,data,opt){
+        var path=(r&&r.path)||'';
+        if(path.indexOf('/records/')>=0&&data&&data.checkIn){
+          return getDoc(r).then(function(s){
+            var prev=s.exists()?s.data():{};
+            if(prev.extraVisits)data.extraVisits=prev.extraVisits;
+            ['presentFromExtraVisit','extraVisitDayComplete','extraVisitActive'].forEach(function(k){
+              if(prev[k]!=null)data[k]=prev[k];
+            });
+            return _setDoc(r,data,Object.assign({merge:true},opt||{}));
+          });
+        }
+        return _setDoc.apply(window,arguments);
+      };
+      return Promise.resolve(_doCheckIn.apply(this,arguments)).finally(function(){
+        window.setDoc=_setDoc;
+      });
+    });
+  };
+  window.doCheckIn.__v16=1;
+}
+
 function wrapRender(name,fixData){
   var fn=window[name];
   if(typeof fn!=='function'||fn.__v15)return;
@@ -5980,8 +6038,17 @@ function wrapRender(name,fixData){
 if(typeof window.renderAttTab==='function'&&!window.renderAttTab.__v15){
   var _renderAttTab=window.renderAttTab;
   window.renderAttTab=function(rec){
-    if(rec)rec=applyExtraVisitDisplay(Object.assign({},rec));
-    return _renderAttTab(rec);
+    var raw=rec?Object.assign({},rec):rec;
+    if(raw)applyExtraVisitDisplay(raw,null,{punchUi:true});
+    var ret=_renderAttTab(raw);
+    if(raw&&(raw._extraVisitDayComplete||raw.presentFromExtraVisit)&&!raw.checkIn){
+      setTimeout(function(){
+        var n=document.getElementById('attNotice');
+        if(!n||n.querySelector('.v16-extra-day'))return;
+        n.insertAdjacentHTML('beforeend','<div class="notice notice-success v16-extra-day" style="margin-top:8px">✅ اكتملت بصمة الموقع الآخر — <b>يُحسب يوم حضور</b>. يمكنك الآن تسجيل حضور وانصراف من موقعك الأساسي.</div>');
+      },80);
+    }
+    return ret;
   };
   window.renderAttTab.__v15=1;
 }
@@ -6025,6 +6092,8 @@ if(typeof window.dashRecSnap==='function'&&!window.dashRecSnap.__v15ev){
   };
   window.dashRecSnap.__v15ev=1;
 }
+
+})();
 
 })();
 
