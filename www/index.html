@@ -3603,6 +3603,11 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
         ? '<button class="btn-ghost" style="color:#047857;border-color:#a7f3d0" title="إلغاء تحويله لبدل راحة" onclick="event.stopPropagation();compRevert('+i+')">↩️ بدل</button>'
         : '<button class="btn-ghost" style="color:#047857;border-color:#a7f3d0" title="تحويل يوم الراحة المشغول إلى رصيد بدل راحة" onclick="event.stopPropagation();compConvert('+i+')">🔄 بدل راحة</button>';
     }
+    if(r.isExtraVisitRow || r._fromExtraVisitOnly){
+      flags += '<span class="att2-flag" style="color:#6d28d9" title="'+esc(r.locationStatus||r.adminNote||'بصمة في موقع آخر')+'">📍 موقع آخر</span>';
+    }else if(r.extraVisitSummary){
+      flags += '<span class="att2-flag" style="color:#6d28d9" title="'+esc(r.extraVisitSummary)+'">📍 '+esc((r.extraVisits||[]).length)+' زيارة</span>';
+    }
     var q = ((r.managerName||'')+' '+(r.site||'')).toLowerCase();
     return '<tr class="att2-row" data-date="'+esc(r.date)+'" data-status="'+cls+'" data-out="'+out+'" data-q="'+esc(q)+'" onclick="showLocModal('+i+',\'_attRecords\')">'+
       '<td class="att2-emp" style="text-align:right"><b>'+(esc(r.managerName)||'—')+'</b><small>'+(esc(r.site)||'')+'</small></td>'+
@@ -3689,6 +3694,7 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
           var c = String(b.date||'').localeCompare(String(a.date||''));
           return c || String(a.managerName||'').localeCompare(String(b.managerName||''), 'ar');
         });
+        if(typeof window.expandAttendanceForExtraVisits==='function')all=window.expandAttendanceForExtraVisits(all);
         window._attRecords = all;
         paint(el, all, managers, days, dayCount);
       });
@@ -3706,7 +3712,10 @@ function _regeneratorValues(e){if(null!=e){var t=e["function"==typeof Symbol&&Sy
       if(r.checkIn && r.outsideWorkRange) c.out++;
     });
     var seenToday = {};
-    all.forEach(function(r){ if(r.date === today) seenToday[r.uid] = 1; });
+    all.forEach(function(r){
+      if(r.date !== today) return;
+      if(r.checkIn || r.checkOut || (r.extraVisits && r.extraVisits.length) || r.isExtraVisitRow) seenToday[r.uid] = 1;
+    });
     var notYet = managers.filter(function(m){
       if(m.disabled || seenToday[m.id]) return false;
       try{ return !isWeekendDow(new Date().getDay(), m.weekendDays); }catch(e){ return true; }
@@ -5800,6 +5809,7 @@ window.normalizeAttendanceRecord=function(r,mgr){
     else if(window.currentProfile&&r.uid===window.currentProfile.id)r.outDeviceLabel=attDeviceLabelFallback();
     else r.outDeviceLabel='غير مسجّل في السجل (بصمة قديمة)';
   }
+  if(typeof window.applyExtraVisitDisplay==='function')window.applyExtraVisitDisplay(r,mgr);
   return r;
 };
 var _showLocModal=window.showLocModal;
@@ -5835,6 +5845,186 @@ if(typeof _printAdminMonthlyA4==='function'){
   };
 }
 })();
+
+/* ═════ v15: بصمة «موقع آخر» تظهر كحضور + ملاحظة المكان ═════ */
+(function(){
+'use strict';
+
+function visitSiteLine(v){
+  var p=[];
+  if(v.note)p.push(v.note);
+  if(v.address)p.push(v.address);
+  return p.join(' — ');
+}
+
+window.applyExtraVisitDisplay=function(rec,mgr){
+  if(!rec)return rec;
+  var visits=rec.extraVisits;
+  if(!visits||!visits.length)return rec;
+  var open=null,lastWithIn=null,i,v;
+  for(i=0;i<visits.length;i++){
+    v=visits[i];
+    if(v.checkIn)lastWithIn=v;
+    if(v.checkIn&&!v.checkOut)open=v;
+  }
+  if(!lastWithIn)return rec;
+
+  if(!rec.checkIn){
+    rec._fromExtraVisitOnly=true;
+    rec.checkIn=open?open.checkIn:lastWithIn.checkIn;
+    if(!open&&lastWithIn.checkOut){
+      rec.checkOut=lastWithIn.checkOut;
+      if(lastWithIn.workHours)rec.workHours=lastWithIn.workHours;
+    }
+    if(!rec.inAddress&&lastWithIn.address)rec.inAddress=lastWithIn.address;
+    if(!rec.status||rec.status==='absent')rec.status=open?'checkedin':'present';
+  }
+
+  var noteParts=[];
+  visits.forEach(function(vx,idx){
+    if(!vx.checkIn)return;
+    noteParts.push('زيارة '+(idx+1)+': دخول '+vx.checkIn+(vx.checkOut?' · خروج '+vx.checkOut:' (جارٍ)')+(visitSiteLine(vx)?' — '+visitSiteLine(vx):''));
+  });
+  rec.extraVisitSummary=noteParts.join(' | ');
+  var loc=(open&&open.address)||lastWithIn.address||'';
+  var locNote='📍 حضور من موقع آخر'+(loc?': '+loc:'')+(open&&open.note?' — '+open.note:'');
+  if(rec._fromExtraVisitOnly||!rec.locationStatus)rec.locationStatus=locNote;
+  if(rec._fromExtraVisitOnly){
+    rec.outsideWorkRange=true;
+    if(!rec.inLat&&lastWithIn.inLat!=null){rec.inLat=lastWithIn.inLat;rec.inLng=lastWithIn.inLng;}
+  }
+  return rec;
+};
+
+window.expandAttendanceForExtraVisits=function(list){
+  var out=[];
+  (list||[]).forEach(function(r){
+    applyExtraVisitDisplay(r);
+    out.push(r);
+    if((r.extraVisits||[]).length&&r.checkIn&&!r._fromExtraVisitOnly){
+      r.extraVisits.forEach(function(v){
+        if(!v.checkIn)return;
+        out.push(Object.assign({},r,{
+          checkIn:v.checkIn,
+          checkOut:v.checkOut||'',
+          workHours:v.workHours||'',
+          inLat:v.inLat,inLng:v.inLng,
+          outLat:v.outLat,outLng:v.outLng,
+          inAddress:v.address||'',
+          outAddress:v.outAddress||'',
+          locationStatus:'📍 '+(v.note||'موقع آخر')+(v.address?': '+v.address:''),
+          outsideWorkRange:true,
+          status:v.checkOut?'present':'checkedin',
+          isExtraVisitRow:true,
+          extraVisits:null,
+          extraVisitSummary:null,
+          adminNote:v.note||'زيارة مشروع آخر'
+        }));
+      });
+    }
+  });
+  return out;
+};
+
+function enrichRecords(arr){
+  return (arr||[]).map(function(r){
+    var c=Object.assign({},r);
+    applyExtraVisitDisplay(c);
+    return c;
+  }).filter(function(r){
+    return r.checkIn||r.checkOut||(r.extraVisits&&r.extraVisits.length)||['present','checkedin','late','partial'].indexOf(r.status)>=0;
+  });
+}
+
+function syncExtraVisitStatus(uid,date){
+  if(!uid||!date||typeof getDoc!=='function'||typeof updateDoc!=='function')return Promise.resolve();
+  return getDoc(doc(db,'attendance/'+uid+'/records/'+date)).then(function(snap){
+    if(!snap.exists())return;
+    var d=snap.data()||{};
+    if(d.checkIn)return;
+    var visits=d.extraVisits||[];
+    if(!visits.some(function(v){return v.checkIn;}))return;
+    var open=visits.some(function(v){return v.checkIn&&!v.checkOut;});
+    return updateDoc(doc(db,'attendance/'+uid+'/records/'+date),{status:open?'checkedin':'present'});
+  }).catch(function(){});
+}
+
+function wrapExtraVisitPunch(name){
+  var fn=window[name];
+  if(typeof fn!=='function'||fn.__v15)return;
+  window[name]=function(){
+    var p=fn.apply(this,arguments);
+    return Promise.resolve(p).then(function(){
+      if(!window.currentUser)return;
+      return syncExtraVisitStatus(currentUser.uid,typeof todayStr==='function'?todayStr():'');
+    });
+  };
+  window[name].__v15=1;
+}
+wrapExtraVisitPunch('doExtraVisitCheckIn');
+wrapExtraVisitPunch('doExtraVisitCheckOut');
+
+function wrapRender(name,fixData){
+  var fn=window[name];
+  if(typeof fn!=='function'||fn.__v15)return;
+  window[name]=function(){
+    var out=fn.apply(this,arguments);
+    return Promise.resolve(out).then(function(r){
+      if(fixData)fixData();
+      return r;
+    });
+  };
+  window[name].__v15=1;
+}
+
+if(typeof window.renderAttTab==='function'&&!window.renderAttTab.__v15){
+  var _renderAttTab=window.renderAttTab;
+  window.renderAttTab=function(rec){
+    if(rec)rec=applyExtraVisitDisplay(Object.assign({},rec));
+    return _renderAttTab(rec);
+  };
+  window.renderAttTab.__v15=1;
+}
+
+wrapRender('renderHistoryTab',function(){
+  var el=document.getElementById('mgrHistory');
+  if(!el||!window._histAll||typeof attendanceStatusBadge!=='function')return;
+  var rows=enrichRecords(window._histAll.map(function(r){return Object.assign({},r);}));
+  window._histRecords=rows;
+  var tbody=el.querySelector('.tbl-wrap tbody');
+  if(!tbody)return;
+  if(!rows.length){
+    tbody.innerHTML='<tr><td colspan="6" class="tbl-empty">لا توجد سجلات حضور</td></tr>';
+    return;
+  }
+  tbody.innerHTML=rows.map(function(r){
+    var addr=r.inAddress||'';
+    var addrShort=addr?addr.substring(0,28)+'...':'—';
+    var locNote=r._fromExtraVisitOnly||r.isExtraVisitRow?(' <span class="badge badge-purple" style="font-size:10px">📍 موقع آخر</span>'):'';
+    return '<tr><td>'+r.date+'</td><td style="color:var(--success);font-weight:600">'+(r.checkIn||'—')+locNote+'</td><td style="color:var(--danger);font-weight:600">'+(r.checkOut||'—')+'</td><td>'+fmtWorkHours(r.workHours)+'</td><td style="font-size:11px;color:var(--text2);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+addr+'">'+addrShort+'</td><td>'+attendanceStatusBadge(r,currentProfile.schedule,currentProfile.weekendDays)+'</td></tr>';
+  }).join('');
+});
+
+wrapRender('renderPersonalReport',function(){
+  var data=window._managerReportData;
+  if(!data||!data.attendanceRows)return;
+  data.attendanceRows=enrichRecords(data.attendanceRows);
+});
+
+if(typeof window.dashRecSnap==='function'&&!window.dashRecSnap.__v15ev){
+  var _dashRecSnap=window.dashRecSnap;
+  window.dashRecSnap=function(uid,date){
+    return Promise.resolve(_dashRecSnap(uid,date)).then(function(snap){
+      if(!snap||typeof snap.exists!=='function'||!snap.exists())return snap;
+      var raw=snap.data();
+      if(!raw||typeof raw!=='object')return snap;
+      var d=Object.assign({},raw);
+      applyExtraVisitDisplay(d);
+      return{exists:function(){return true;},data:function(){return d;}};
+    });
+  };
+  window.dashRecSnap.__v15ev=1;
+}
 
 })();
 
